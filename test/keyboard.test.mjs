@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { createKeyboardHelp, keyboardHelp, keyboardHelpMarkup, shortcutAction } from '../docs/js/keyboard.js';
+
+test('跳至主要內容是第一個連結，目標可接收焦點且不加入 Tab 順序', async () => {
+  const html = await readFile(new URL('../docs/index.html', import.meta.url), 'utf8');
+  assert.match(html, /<body>\s*<a\b[^>]*class="skip-link"[^>]*href="#main"[^>]*>[^<\s][^<]*<\/a>/);
+  const main = html.match(/<main\b[^>]*\bid="main"[^>]*>/g) ?? [];
+  assert.equal(main.length, 1, 'skip link resolves to one main landmark');
+  assert.match(main[0], /\btabindex="-1"/);
+});
 
 test('鍵盤說明涵蓋面板、榜單、田地圖、氣氛與所有深連結，使用按鍵與程式碼語意', () => {
   const html = keyboardHelpMarkup();
