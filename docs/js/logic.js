@@ -50,11 +50,35 @@ export function mood(stocks, taiexPct, scene = 'actual') {
     g < 0.2 ? '草長出來了…' : g < 0.45 ? '牛聞香而來' : g < 0.75 ? '牧場正式開張 🐄' : '整片都是草原，牛群已定居';
   return { g, state: kind, cowCount, caption, preview: Boolean(preview) };
 }
-export function filterStocks(stocks, { query = '', market = 'all', direction = 'all' } = {}) {
+export function filterStocks(stocks, { query = '', market = 'all', direction = 'all', industry = 'all' } = {}) {
   const text = query.trim().toLocaleLowerCase('zh-Hant');
   return stocks.filter(s => (!text || `${s.code} ${s.name}`.toLocaleLowerCase('zh-Hant').includes(text)) &&
     (market === 'all' || (market === 'etf' ? Boolean(s.etf) : s.mkt === market)) &&
+    (industry === 'all' || s.ind === industry) &&
     (direction === 'all' || direction === 'up' && s.pct > 0 || direction === 'down' && s.pct < 0 || direction === 'flat' && s.pct === 0));
+}
+export function pickStock(stocks, selection) {
+  const key = String(selection ?? '').trim();
+  return key ? stocks.find(s => s.key === key || s.code === key) ?? null : null;
+}
+export function topMovers(stocks, limit = 8) {
+  const sorted = stocks.filter(s => Number.isFinite(s.pct) && s.pct !== 0)
+    .sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct) || a.code.localeCompare(b.code));
+  const rows = sorted.slice(0, Math.max(0, limit));
+  // Include the strongest opposite mover when one direction dominates the list.
+  if (rows.length > 1 && rows.every(s => Math.sign(s.pct) === Math.sign(rows[0].pct))) {
+    const opposite = sorted.find(s => Math.sign(s.pct) !== Math.sign(rows[0].pct));
+    if (opposite) rows[rows.length - 1] = opposite;
+  }
+  return rows.sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct) || a.code.localeCompare(b.code));
+}
+export function sparkPoints(stock) {
+  const required = ['open', 'high', 'low', 'price'];
+  if (!stock || required.some(field => !Number.isFinite(stock[field]) || stock[field] <= 0) || stock.high < stock.low) return [];
+  const fields = Number.isFinite(stock.prev) && stock.prev > 0 ? ['prev', ...required] : required;
+  const values = fields.map(field => stock[field]), min = Math.min(...values), range = Math.max(...values) - min;
+  return fields.map((field, i) => ({ field, value: stock[field], x: 8 + i / (fields.length - 1) * 304,
+    y: 8 + (range ? (min + range - stock[field]) / range : 0.5) * 84 }));
 }
 export function rankings(stocks, type = 'up', market = 'all', limit = 20) {
   return filterStocks(stocks, { market }).filter(s => type === 'vol' ? Number.isFinite(s.vol) : Number.isFinite(s.pct) && (type === 'up' ? s.pct > 0 : s.pct < 0))

@@ -22,7 +22,12 @@
 - 3D 產業分區牧場：所有股票共用一個 InstancedMesh；田地高度對應漲跌幅絕對值，上限 10%。草葉以 GPU 擺動；低多邊形乳牛吃草、搖尾巴；大漲時帶行李離開，紅花盛開。
 - 拖曳旋轉、滾輪／雙指縮放、點選股票報價；懶載入 three.js、離開畫面或隱藏分頁即暫停，尊重減少動態效果偏好。無 WebGL2 時使用 2D 備援牧場，完整田地圖仍可操作。
 - 「實際／小跌／大跌／平盤／大漲」氣氛預覽，支援 `?scene=actual|down|crash|flat|up`。**只改變草、牛群與氣氛；報價、田地顏色與高度、榜單均維持原始資料。**
-- 全市場產業田地熱圖、漲幅／跌幅／成交量前 20 名、ETF 焦點、產業等權平均、股票代碼與名稱搜尋。結果預設 30 檔，每次可再顯示 50 檔。手機田地圖預先展開六個產業，可展開全部。
+- 全市場產業田地熱圖、漲幅／跌幅／成交量前 20 名，可按「顯示更多」查看前 50 名；ETF 焦點、產業等權平均、股票代碼與名稱搜尋。搜尋結果預設 30 檔，每次可再顯示 50 檔。手機田地圖預先展開六個產業，可展開全部。
+- 點選 3D 田地、熱圖、排行榜或搜尋列開啟個股明細，查看價量、開高低、漲跌停、估價標記與大盤比較。支援 `?q=2330` 深連結，選取以防抖方式更新網址，關閉時移除 `q`；可用 Esc、背景或關閉鈕離開，焦點會返回入口，手機為全螢幕面板。
+- 明細僅在開高低及現價齊全時顯示「今日價位區間示意（非分時圖）」，前收若存在則一併呈現；沒有分時曲線或合成報價。來源缺少個股時刻時明確標示，快照最新報價時間另列。
+- 標頭下方的異動焦點跑馬燈顯示最多 8 檔，依漲跌幅絕對值排序；雙向皆有資料時保留一檔反向焦點。滑鼠停留／鍵盤聚焦時停止，也可手動暫停；減少動態效果模式改為靜態清單。
+- 非盤中或盤後快照顯示「目前非盤中／收盤資料」與最後報價時間，資料過期時加強提示；初次載入各區有等待文字。
+- 點選產業表列會展開並捲動至對應熱圖分區，同時套用股票搜尋的產業篩選；可再疊加名稱、代碼、市場與漲跌條件。
 - 個股對標所屬市場的大盤，以百分點顯示「贏大盤／輸大盤」。產業表對標加權指數，混合日期資料不直接與當日大盤比較。
 
 ## 資料來源與限制
@@ -76,17 +81,17 @@ TWSE MIS ─────────────── 每批 120 檔、指數 �
 - cron: '20 6 * * 1-5'     # 臺北週一至週五 14:20 收盤單次快照
 ```
 
-臺北週一至週五 09:00–13:35，Actions 每 5 分鐘啟動 job，啟動時由 `scripts/lib/loop-policy.mjs` 依臺北時間與事件輸出 `loop=true|false` 至 `$GITHUB_OUTPUT`。循環模式依序執行最多 **3 次官方 Pages 部署**：`scripts/run-cycle.mjs --cycle 1` 嘗試 seed、擷取並執行一次 `check.mjs`，第 2、3 輪只更新 MIS、略過檢查。每輪擷取後，分別上傳 `github-pages-1`、`github-pages-2`、`github-pages-3`，再由官方 deploy action 部署對應 artifact。擷取通常約 80–100 秒，加上部署與輪間 `sleep 15`，以約 **90–120 秒**間隔為目標，實際間隔依網路與部署耗時變動。run-cycle 記錄擷取與總耗時、`quoteTime`、`generatedAt`；部署狀態由官方 action 記錄。整個 job 上限 6 分鐘，逾時可能無法完成三輪。
+臺北週一至週五 09:00–13:35，Actions 每 5 分鐘啟動 job，啟動時由 `scripts/lib/loop-policy.mjs` 依臺北時間與事件輸出 `loop=true|false` 至 `$GITHUB_OUTPUT`。每個 5 分鐘 job 在循環模式依序執行最多 **2 次官方 Pages 部署**：`scripts/run-cycle.mjs --cycle 1` 嘗試 seed、擷取並執行一次 `check.mjs`，第 2 輪只更新 MIS、略過檢查。每輪擷取後，分別上傳 `github-pages-1`、`github-pages-2`，再由官方 deploy action 部署對應 artifact。擷取通常約 80–100 秒，加上部署與輪間 `sleep 15`，部署間隔約 **90–120 秒以上**，MIS 較慢時實測約 2 分鐘，實際間隔依網路與部署耗時變動。run-cycle 記錄擷取與總耗時、`quoteTime`、`generatedAt`；部署狀態由官方 action 記錄。整個 job 上限 8 分鐘；已移除第 3 輪，以符合 job 時間預算。
 
-cron 本身涵蓋至 13:55，因此 13:35–13:55 啟動的 job 採**單次**快照；14:20 收盤排程也只執行一次。盤中 push／手動執行採循環模式，其餘時段與週末採單次。模式在 job 開始時決定一次，後兩輪沿用同一輸出，可能跨過 13:35。平日休市仍會執行，真正行情日期由來源決定，這裡未另接交易日曆。
+cron 本身涵蓋至 13:55，因此 13:35–13:55 啟動的 job 採**單次**快照；14:20 收盤排程也只執行一次。盤中 push／手動執行採循環模式，其餘時段與週末採單次。模式在 job 開始時決定一次，第 2 輪沿用同一輸出，可能跨過 13:35。平日休市仍會執行，真正行情日期由來源決定，這裡未另接交易日曆。
 
-`concurrency.group: pages`、`cancel-in-progress: false` 讓前一個 job 完成再交接，避免工作同時部署。GitHub 預設只保留一個 pending run，新的排隊執行可能取代舊的 pending run；[官方 concurrency 說明](https://docs.github.com/en/actions/concepts/workflows-and-actions/concurrency)。任一輪擷取、檢查或部署失敗即停止後續步驟並讓 job 失敗；已成功發布的 Pages 仍保留，擷取失敗不會上傳或部署 seed／舊快照。environment `github-pages` 的 URL 使用第一輪 `deployment.outputs.page_url`。
+`concurrency.group: pages`、`cancel-in-progress: false` 讓前一個 job 完成再交接，避免工作同時部署。GitHub 預設只保留一個 pending run，新的排隊執行可能取代舊的 pending run；[官方 concurrency 說明](https://docs.github.com/en/actions/concepts/workflows-and-actions/concurrency)。第 1 輪擷取、檢查、上傳或部署失敗會停止後續步驟並讓 job 失敗；第 2 輪擷取、上傳與部署皆設 `continue-on-error: true`，晚發失敗仍保留第 1 輪 Pages，讓 job 正常結束。第 2 輪依前一步的 `outcome` 決定是否繼續，擷取失敗不會上傳或部署 seed／舊快照，上傳失敗不會嘗試部署。environment `github-pages` 的 URL 使用第一輪 `deployment.outputs.page_url`。
 
 workflow 使用 `actions/checkout@v4`、`actions/setup-node@v4`（Node 22）、`actions/configure-pages@v5`，再於每輪執行 [`actions/upload-pages-artifact@v3`](https://github.com/actions/upload-pages-artifact/tree/v3)（`path: docs`、保留 1 天）與 [`actions/deploy-pages@v4`](https://github.com/actions/deploy-pages/tree/v4)（`artifact_name` 對應該輪名稱）。權限維持 `contents: read`、`pages: write`、`id-token: write`。先前自訂 `POST /repos/.../pages/deployments` 在此 repo 使用 `GITHUB_TOKEN`、raw OIDC 與數字 artifact id 仍回 HTTP 404，因此改回曾成功的官方 actions，讓官方工具處理打包、OIDC 與部署輪詢。workflow 不再暫裝 `@actions/*` 套件，也不使用本機 `.github/actions/market-loop` 或自訂 Pages REST 部署；舊腳本僅保留供測試與參考，`package.json` 維持零依賴。
 
-前端在臺北平日 09:00–14:30 約每 **60 秒**讀取同源快照，使用 `Date.now()` 查詢參數及 `cache: 'no-store'` 避免舊快取；其他時段每 10 分鐘，分頁隱藏時暫停。GitHub cron 可能排隊、延遲或漏跑，Pages 部署也需要時間；90–120 秒是更新目標，無法保證每次達成。MIS 本身也可能延遲，**非即時逐筆行情**，請同時看報價日期、時間與擷取時間。
+前端在臺北平日 09:00–14:30 約每 **60 秒**讀取同源快照，使用 `Date.now()` 查詢參數及 `cache: 'no-store'` 避免舊快取；其他時段每 10 分鐘，分頁隱藏時暫停。GitHub cron 可能排隊、延遲或漏跑，Pages 部署也需要時間；90–120 秒以上是部署間隔的概估，無法保證每次達成。MIS 本身也可能延遲，**非即時逐筆行情**，請同時看報價日期、時間與擷取時間。
 
-指定 cron 每個平日共 **61 次**（60 次盤中時段排程＋1 次收盤），22 個平日約 **1,342 次／月**；push／手動執行另計。以每 5 分鐘 3 次、約 60 個時槽粗估，約 **180 次部署／日**；實際依 13:35 後單次模式、排程延遲與成功輪數而減少。這是本公開 repo 接受的更新頻率，使用標準 `ubuntu-latest` runner，適用 [GitHub 公開倉庫 Actions 免費使用規則](https://docs.github.com/en/actions/concepts/billing-and-usage)。[Pages 官方限制](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits) 說明自訂 Actions workflow 不受每小時 10 次 build 軟限制，但高頻 Pages 部署仍可能觸發服務速率限制（HTTP 429）；需持續留意部署紀錄、artifact 儲存與服務限制，必要時降低輪數或頻率，並非保證無限額度。
+指定 cron 每個平日共 **61 次**（60 次盤中時段排程＋1 次收盤），22 個平日約 **1,342 次／月**；push／手動執行另計。以每 5 分鐘最多 2 次、約 60 個時槽粗估，約 **120 次部署／日**；實際依 13:35 後單次模式、排程延遲與成功輪數而減少。這是本公開 repo 接受的更新頻率，使用標準 `ubuntu-latest` runner，適用 [GitHub 公開倉庫 Actions 免費使用規則](https://docs.github.com/en/actions/concepts/billing-and-usage)。[Pages 官方限制](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits) 說明自訂 Actions workflow 不受每小時 10 次 build 軟限制，但高頻 Pages 部署仍可能觸發服務速率限制（HTTP 429）；需持續留意部署紀錄、artifact 儲存與服務限制，必要時降低輪數或頻率，並非保證無限額度。
 
 ## 本機開發
 
@@ -122,6 +127,7 @@ scripts/check.mjs            語法與 node:test
 
 docs/js/logic.js             可在 Node 載入的純行情／時間邏輯
 docs/js/display.js           格式化與 HTML 跳脫
+docs/js/detail.js            個股明細、深連結、防抖與焦點管理
 docs/js/app.js               介面、輪詢、事件委派
 docs/js/pasture.js           three.js 牧場、互動與資源回收
 ```

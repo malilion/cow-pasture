@@ -1,8 +1,10 @@
-import { breadth, changePct, decodeSnapshot, filterStocks, freshness, industryAggregates, mood, rankings, refreshDelay } from './logic.js';
+import { breadth, changePct, decodeSnapshot, filterStocks, freshness, industryAggregates, isMarketHours, mood, pickStock, rankings, refreshDelay, topMovers } from './logic.js';
 import { badges, escapeHtml as esc, format, formatPrice, formatVolume, pctText, signed, tileColor, tone, vsText } from './display.js';
+import { createStockPanel } from './detail.js';
 
 const $ = id => document.getElementById(id);
-const state = { snapshot: null, stocks: [], scene: 'actual', rank: 'up', limit: 30, pasture: null, loadingPasture: false, industriesExpanded: false, industryOpen: new Map() };
+const state = { snapshot: null, stocks: [], scene: 'actual', rank: 'up', rankLimit: 20, limit: 30, pasture: null, loadingPasture: false, industriesExpanded: false, industryOpen: new Map() };
+const stockPanel = createStockPanel({ dialog: $('stock-panel'), getStocks: () => state.stocks, getSnapshot: () => state.snapshot });
 const compactHeatmap = matchMedia('(max-width: 600px)');
 const scenes = new Set(['actual', 'down', 'crash', 'flat', 'up']);
 const sceneParam = new URL(location.href).searchParams.get('scene');
@@ -21,6 +23,17 @@ function renderFreshness() {
   const f = freshness(state.snapshot);
   const content = `<strong>資料時間 ${esc(f.dateLabel)}</strong><span class="freshness-mode">${esc(f.modeLabel)}</span><span class="freshness-age ${f.stale ? 'stale' : ''}">${esc(f.ageLabel)}${f.stale ? ' · 請留意資料日期' : ''}</span>`;
   if ($('freshness').innerHTML !== content) $('freshness').innerHTML = content;
+  $('freshness').closest('.freshness-card').classList.toggle('is-stale', f.stale);
+  const closed = state.snapshot.mode === 'eod' || !isMarketHours(new Date(), 13 * 60 + 30) || f.modeLabel === '收盤資料';
+  $('market-status').hidden = !closed;
+  $('market-status').textContent = `目前非盤中／收盤資料 · 快照最新報價 ${f.dateLabel}`;
+  $('stale-notice').hidden = !f.stale;
+  $('stale-notice').textContent = `資料更新已延遲 · ${f.ageLabel}。最後報價 ${f.dateLabel}，請留意行情日期。`;
+}
+function renderTicker() {
+  const stocks = topMovers(state.stocks);
+  $('ticker-track').innerHTML = stocks.length ? stocks.map(s => `<button type="button" class="ticker-stock" data-stock-key="${esc(s.key)}"><span>${esc(s.code)} ${esc(s.name)}</span><b class="${tone(s.pct)}">${s.pct > 0 ? '▲' : '▼'} ${pctText(s.pct)}</b>${badges(s)}</button>`).join('') : '<span class="quiet">目前沒有可比較的異動報價。</span>';
+  $('ticker-pause').hidden = !stocks.length;
 }
 function renderIndices() {
   $('indices').innerHTML = Object.values(state.snapshot.indices).map(index => {
@@ -68,8 +81,10 @@ function renderHeatmap() {
   $('heatmap-detail').textContent = '選一塊田地，看看誰在長草。';
 }
 function renderRankings() {
-  const rows = rankings(state.stocks, state.rank, $('ranking-market').value);
-  $('ranking-list').innerHTML = rows.length ? rows.map((s, i) => `<li class="ranking-row"><span class="ranking-number">${String(i + 1).padStart(2, '0')}</span><span class="stock-name">${esc(s.name)}${badges(s)}<small>${esc(s.code)} · ${s.mkt === 'otc' ? '上櫃' : '上市'} · ${formatPrice(s.price)}</small></span><span class="ranking-value ${state.rank === 'vol' ? '' : tone(s.pct)}">${state.rank === 'vol' ? `${formatVolume(s.vol)} 張` : pctText(s.pct)}<small class="${tone(s.vs)}">${vsText(s.vs)}</small></span></li>`).join('') : '<li class="empty">目前沒有符合條件的報價。</li>';
+  const all = rankings(state.stocks, state.rank, $('ranking-market').value, 50), rows = all.slice(0, state.rankLimit);
+  $('ranking-list').innerHTML = rows.length ? rows.map((s, i) => `<li><button type="button" class="ranking-row" data-stock-key="${esc(s.key)}"><span class="ranking-number">${String(i + 1).padStart(2, '0')}</span><span class="stock-name">${esc(s.name)}${badges(s)}<small>${esc(s.code)} · ${s.mkt === 'otc' ? '上櫃' : '上市'} · ${formatPrice(s.price)}</small></span><span class="ranking-value ${state.rank === 'vol' ? '' : tone(s.pct)}">${state.rank === 'vol' ? `${formatVolume(s.vol)} 張` : pctText(s.pct)}<small class="${tone(s.vs)}">${vsText(s.vs)}</small></span></button></li>`).join('') : '<li class="empty">目前沒有符合條件的報價。</li>';
+  $('ranking-more').hidden = all.length <= rows.length;
+  $('ranking-count').textContent = `已顯示 ${rows.length} 檔 · 最多前 50 名`;
 }
 function renderEtf() {
   const stocks = state.stocks.filter(s => s.etf);
@@ -82,16 +97,20 @@ function renderIndustries() {
   const pct = changePct(state.snapshot.indices.taiex?.price, state.snapshot.indices.taiex?.prev);
   // Suppress comparison when an industry's average mixes quote dates.
   const mixedIndustries = new Set(state.stocks.filter(s => s.date !== state.snapshot.marketDate).map(s => s.ind));
-  $('industry-rows').innerHTML = industryAggregates(state.stocks, pct).map(s => `<tr><td>${esc(s.name)}</td><td>${s.count}</td><td class="${tone(s.avg)}">${pctText(s.avg)}</td><td><span class="up">${s.up}</span> / <span class="down">${s.down}</span></td><td class="${tone(mixedIndustries.has(s.name) ? null : s.vs)}">${vsText(mixedIndustries.has(s.name) ? null : s.vs)}</td></tr>`).join('');
+  $('industry-rows').innerHTML = industryAggregates(state.stocks, pct).map(s => `<tr data-industry-target="${esc(s.name)}"><td><button type="button" class="row-link" data-industry-target="${esc(s.name)}">${esc(s.name)}</button></td><td>${s.count}</td><td class="${tone(s.avg)}">${pctText(s.avg)}</td><td><span class="up">${s.up}</span> / <span class="down">${s.down}</span></td><td class="${tone(mixedIndustries.has(s.name) ? null : s.vs)}">${vsText(mixedIndustries.has(s.name) ? null : s.vs)}</td></tr>`).join('');
+  const selected = $('search-industry').value;
+  $('search-industry').innerHTML = '<option value="all">所有產業</option>' + [...new Set(state.stocks.map(s => s.ind))].sort((a, b) => a.localeCompare(b, 'zh-Hant')).map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join('');
+  $('search-industry').value = [...$('search-industry').options].some(o => o.value === selected) ? selected : 'all';
 }
 function renderSearch(reset = false) {
   if (reset) state.limit = 30;
-  const rows = filterStocks(state.stocks, { query: $('query').value, market: $('search-market').value, direction: $('search-direction').value });
+  const rows = filterStocks(state.stocks, { query: $('query').value, market: $('search-market').value, direction: $('search-direction').value, industry: $('search-industry').value });
   $('search-count').textContent = `${format(rows.length, 0)} 檔結果 · 已顯示 ${Math.min(rows.length, state.limit)}`;
   const fragment = document.createDocumentFragment();
   for (const s of rows.slice(0, state.limit)) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td class="stock-name">${esc(s.code)} ${esc(s.name)}${badges(s)}</td><td>${s.mkt === 'otc' ? '上櫃' : '上市'} / ${esc(s.ind)}</td><td>${formatPrice(s.price)}${s.price === null ? ` <small>未成交 · 前收 ${formatPrice(s.prev)}</small>` : ''}</td><td class="${tone(s.pct)}">${pctText(s.pct)}</td><td>${formatVolume(s.vol)}</td><td class="${tone(s.vs)}">${vsText(s.vs)}</td>`;
+    tr.dataset.stockKey = s.key;
+    tr.innerHTML = `<td class="stock-name"><button type="button" class="row-link" data-stock-key="${esc(s.key)}">${esc(s.code)} ${esc(s.name)}</button>${badges(s)}</td><td>${s.mkt === 'otc' ? '上櫃' : '上市'} / ${esc(s.ind)}</td><td>${formatPrice(s.price)}${s.price === null ? ` <small>未成交 · 前收 ${formatPrice(s.prev)}</small>` : ''}</td><td class="${tone(s.pct)}">${pctText(s.pct)}</td><td>${formatVolume(s.vol)}</td><td class="${tone(s.vs)}">${vsText(s.vs)}</td>`;
     fragment.append(tr);
   }
   if (!rows.length) { const tr = document.createElement('tr'); tr.innerHTML = '<td colspan="6" class="empty">找不到這塊田地，試試別的名稱或代碼。</td>'; fragment.append(tr); }
@@ -132,13 +151,14 @@ async function loadPasture() {
     if (stopped) return;
     state.pasture = createPasture($('pasture-view'), { tooltip: $('pasture-tooltip'), moo: $('moo'),
       zoomIn: $('zoom-in'), zoomOut: $('zoom-out'), reset: $('reset-view'),
+      onSelect(stock) { stockPanel.open(stock.key); },
       onFailure() { state.pasture?.dispose(); state.pasture = null; fallback = true; renderFallback(); } });
     renderMood();
   } catch { fallback = true; renderFallback(); }
   finally { state.loadingPasture = false; }
 }
 function render() {
-  renderFreshness(); renderIndices(); renderBreadth(); renderHeatmap(); renderRankings(); renderEtf(); renderIndustries(); renderSearch(); renderMood();
+  renderFreshness(); renderIndices(); renderBreadth(); renderHeatmap(); renderRankings(); renderEtf(); renderIndustries(); renderSearch(); renderMood(); renderTicker(); stockPanel.refresh();
   const notes = [], meta = state.snapshot.meta ?? {};
   if (meta.fixture) notes.push('歷史樣本模式：僅顯示隨附的真實 API fixtures，非全市場、非今日報價。');
   if (meta.incompleteUniverse?.length) notes.push(`資料範圍不完整：${meta.incompleteUniverse.join('、')}。`);
@@ -186,11 +206,12 @@ $('scene-control').addEventListener('change', event => {
   const url = new URL(location.href); if (state.scene === 'actual') url.searchParams.delete('scene'); else url.searchParams.set('scene', state.scene);
   history.replaceState(null, '', url); renderMood();
 });
-window.addEventListener('popstate', () => { const scene = new URL(location.href).searchParams.get('scene'); state.scene = scenes.has(scene) ? scene : 'actual'; for (const input of document.querySelectorAll('input[name=scene]')) input.checked = input.value === state.scene; renderMood(); });
-$('ranking-market').addEventListener('change', renderRankings);
+window.addEventListener('popstate', () => { const scene = new URL(location.href).searchParams.get('scene'); state.scene = scenes.has(scene) ? scene : 'actual'; for (const input of document.querySelectorAll('input[name=scene]')) input.checked = input.value === state.scene; renderMood(); stockPanel.syncUrl(); });
+$('ranking-market').addEventListener('change', () => { state.rankLimit = 20; renderRankings(); });
+$('ranking-more').addEventListener('click', () => { state.rankLimit = 50; renderRankings(); $('ranking-list').querySelectorAll('button')[20]?.focus(); });
 function selectRank(button) {
   if (!button) return;
-  state.rank = button.dataset.rank;
+  state.rank = button.dataset.rank; state.rankLimit = 20;
   for (const tab of $('ranking-tabs').querySelectorAll('[role=tab]')) { const active = tab === button; tab.setAttribute('aria-selected', String(active)); tab.tabIndex = active ? 0 : -1; }
   $('ranking-panel').setAttribute('aria-labelledby', button.id); renderRankings();
 }
@@ -204,7 +225,7 @@ $('ranking-tabs').addEventListener('keydown', event => {
 let searchTimer;
 $('search-form').addEventListener('submit', event => event.preventDefault());
 $('query').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => renderSearch(true), 180); });
-for (const id of ['search-market', 'search-direction']) $(id).addEventListener('change', () => renderSearch(true));
+for (const id of ['search-market', 'search-direction', 'search-industry']) $(id).addEventListener('change', () => renderSearch(true));
 const onHeatmapSize = () => { if (state.snapshot) renderHeatmap(); };
 compactHeatmap.addEventListener('change', onHeatmapSize);
 $('expand-industries').addEventListener('click', () => {
@@ -215,7 +236,7 @@ $('expand-industries').addEventListener('click', () => {
 $('show-more').addEventListener('click', () => { state.limit += 50; renderSearch(); });
 function showHeatDetail(target) {
   const tile = target.closest('[data-key]'); if (!tile) return;
-  const stock = state.stocks.find(s => s.key === tile.dataset.key); if (!stock) return;
+  const stock = pickStock(state.stocks, tile.dataset.key); if (!stock) return;
   $('heatmap-detail').innerHTML = `<span><b>${esc(stock.code)} ${esc(stock.name)}</b>${badges(stock)}</span><span>${formatPrice(stock.price)}</span><span class="${tone(stock.pct)}">${pctText(stock.pct)}</span><span class="${tone(stock.vs)}">${vsText(stock.vs)}</span><span class="quiet">${stock.mkt === 'otc' ? '上櫃' : '上市'} · ${esc(stock.ind)} · ${formatVolume(stock.vol)} 張${stock.price === null ? ' · 未成交' : ''}</span>`;
 }
 for (const type of ['pointerover', 'click', 'focusin']) $('heatmap-grid').addEventListener(type, event => showHeatDetail(event.target));
@@ -228,5 +249,35 @@ $('heatmap-grid').addEventListener('keydown', event => {
   const next = event.key === 'Home' ? 0 : event.key === 'End' ? tiles.length - 1 : Math.max(0, Math.min(tiles.length - 1, i + delta));
   tile.tabIndex = -1; tiles[next].tabIndex = 0; tiles[next].focus();
 });
-window.addEventListener('pagehide', event => { if (!event.persisted) { stopped = true; clearTimeout(timer); clearTimeout(searchTimer); clearInterval(freshnessTimer); aborter?.abort(); observer.disconnect(); compactHeatmap.removeEventListener('change', onHeatmapSize); state.pasture?.dispose(); } });
+// Native buttons handle Enter and Space; row delegation also accepts pointer clicks.
+document.addEventListener('click', event => {
+  const stockTarget = event.target.closest('[data-stock-key]');
+  if (stockTarget) stockPanel.open(stockTarget.dataset.stockKey, stockTarget.matches('button') ? stockTarget : stockTarget.querySelector('button'));
+  const tile = event.target.closest('.heat-tile');
+  if (tile) stockPanel.open(tile.dataset.key, tile);
+  const industry = event.target.closest('[data-industry-target]')?.dataset.industryTarget;
+  if (!industry) return;
+  clearTimeout(searchTimer);
+  $('query').value = ''; $('search-market').value = 'all'; $('search-direction').value = 'all';
+  $('search-industry').value = industry; renderSearch(true);
+  const group = [...$('heatmap-grid').children].find(el => el.dataset.industry === industry);
+  if (group) {
+    group.open = true; state.industryOpen.set(industry, true);
+    for (const sibling of $('heatmap-grid').children) sibling.classList.toggle('industry-selected', sibling === group);
+    group.scrollIntoView({ block: 'center' });
+    group.querySelector('summary').focus({ preventScroll: true });
+    $('heatmap-detail').textContent = `已展開「${industry}」，下方股票搜尋也已套用此產業。`;
+  }
+});
+$('ticker-pause').addEventListener('click', () => {
+  const paused = $('ticker-pause').getAttribute('aria-pressed') !== 'true';
+  $('ticker-pause').setAttribute('aria-pressed', String(paused));
+  $('ticker-pause').textContent = paused ? '繼續' : '暫停';
+  $('movers-ticker').classList.toggle('is-paused', paused);
+});
+const tickerObserver = new ResizeObserver(entries => {
+  $('ticker-track').style.setProperty('--ticker-width', `${entries[0].contentRect.width}px`);
+});
+tickerObserver.observe($('ticker-viewport'));
+window.addEventListener('pagehide', event => { if (!event.persisted) { stopped = true; clearTimeout(timer); clearTimeout(searchTimer); stockPanel.dispose(); tickerObserver.disconnect(); clearInterval(freshnessTimer); aborter?.abort(); observer.disconnect(); compactHeatmap.removeEventListener('change', onHeatmapSize); state.pasture?.dispose(); } });
 fetchData();

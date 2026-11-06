@@ -1457,3 +1457,100 @@ footer p {
   }
 
 }
+
+/* Keep the moving strip inside its grid cell, including at 360px. */
+.movers-ticker {
+  display: grid;
+  grid-template-columns: auto minmax(0,1fr);
+  align-items: center;
+  gap: 18px;
+  padding-block: 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px
+}
+.ticker-heading { display: flex; align-items: center; gap: 10px }
+.ticker-viewport { min-width: 0; overflow: hidden }
+.ticker-track {
+  display: flex;
+  width: max-content;
+  gap: 22px;
+  animation: ticker-drift 40s linear infinite alternate
+}
+.ticker-stock {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: 0;
+  padding: 6px 4px;
+  white-space: nowrap;
+  font-size: 12px
+}
+@keyframes ticker-drift {
+  from { transform: translateX(0) }
+  to { transform: translateX(min(0px,calc(var(--ticker-width, 0px) - 100%))) }
+}
+.movers-ticker:hover .ticker-track,.movers-ticker.is-paused .ticker-track { animation-play-state: paused }
+.movers-ticker:focus-within .ticker-track { animation: none }
+.movers-ticker:focus-within .ticker-viewport { overflow-x: auto }
+.ticker-stock:focus-visible { outline-offset: -2px }
+.freshness-card.is-stale { border: 2px solid #a77d3d; background: #fff5df }
+.stale-notice { border-left: 5px solid #a77d3d; background: #fff5df; font-weight: 650 }
+.market-status { background: #eaf0eb; color: #435b50 }
+.ranking-row { width: 100%; text-align: left; border: 0; border-bottom: 1px solid #edf0e8; background: transparent }
+.ranking-row .stock-name { min-width: 0; overflow-wrap: anywhere }
+.ranking-row:hover,[data-stock-key]:hover,.row-link:hover { background: #eaf0e6 }
+.ranking-row:focus-visible { outline-offset: -3px }
+.row-link { padding: 3px 0; border: 0; background: transparent; font-weight: inherit; text-align: left; text-decoration: underline; text-underline-offset: 3px }
+tr[data-stock-key],tr[data-industry-target] { cursor: pointer }
+.industry-selected { border: 2px solid var(--accent); background: #eaf0e6 }
+.search-input { min-width: 0 }
+.search-form select { max-width: 100% }
+.detail-open { overflow: hidden }
+.stock-panel {
+  position: fixed;
+  inset: 0 0 0 auto;
+  margin: 0;
+  width: min(520px,100%);
+  height: 100%;
+  max-height: 100dvh;
+  max-width: 100%;
+  border: 0;
+  border-left: 1px solid var(--line);
+  padding: 28px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: -12px 0 60px #233b3830
+}
+.stock-panel::backdrop { background: #172a2866 }
+.detail-header { display: flex; align-items: start; justify-content: space-between; gap: 16px }
+.detail-header h2 { margin: 0; font-size: 23px; overflow-wrap: anywhere }
+.detail-x { flex: 0 0 40px; height: 40px; border: 1px solid var(--line); border-radius: 50%; background: var(--paper); font-size: 26px; line-height: 1 }
+.detail-market { color: var(--muted); margin-top: 8px }
+.detail-price { display: flex; align-items: baseline; flex-wrap: wrap; gap: 16px }
+.detail-price strong { font-size: 42px; line-height: 1.3; font-variant-numeric: tabular-nums }
+.detail-price b { font-size: 19px }
+.detail-values { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; border-block: 1px solid var(--line); padding-block: 20px }
+.detail-values dt { font-size: 12px; color: var(--muted) }
+.detail-values dd { margin: 2px 0 0; font-size: 18px; overflow-wrap: anywhere }
+.detail-spark { margin: 24px 0 }
+.detail-spark svg { display: block; width: 100%; height: auto; color: var(--accent) }
+.detail-spark polyline { fill: none; stroke: currentColor; stroke-width: 2 }
+.detail-spark circle { fill: var(--card); stroke: currentColor; stroke-width: 2 }
+.detail-spark figcaption { font-size: 13px; font-weight: 700; margin-top: 10px }
+.detail-time { font-size: 12px; overflow-wrap: anywhere }
+@media (max-width:600px) {
+  .movers-ticker { gap: 10px }
+  .ticker-heading { display: block }
+  .ticker-heading strong,.ticker-heading button { display: block; font-size: 11px }
+  .search-form label:not(.search-input) { flex: 1 1 40%; min-width: 0 }
+  .stock-panel { width: 100%; padding: 20px; border: 0 }
+  .detail-header h2 { font-size: 21px }
+}
+@media (prefers-reduced-motion:reduce) {
+  .ticker-track { animation: none; width: 100%; flex-wrap: wrap; gap: 4px 16px }
+  .ticker-stock { white-space: normal; flex-wrap: wrap; text-align: left }
+  #ticker-pause { display: none }
+}

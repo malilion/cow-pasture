@@ -292,6 +292,7 @@ export function createPasture(container, controls) {
     const tipWidth = controls.tooltip.offsetWidth, tipHeight = controls.tooltip.offsetHeight;
     controls.tooltip.style.left = `${clamp(clientX - rect.left + 15, 8, Math.max(8, rect.width - tipWidth - 8))}px`;
     controls.tooltip.style.top = `${clamp(clientY - rect.top - 90, 8, Math.max(8, rect.height - tipHeight - 8))}px`;
+    return tile.stock;
   }
   const pointers = new Map(); let pinchDistance = 0, dragged = false, hover = null;
   const distance = () => { const p = [...pointers.values()]; return p.length < 2 ? 0 : Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y); };
@@ -312,7 +313,10 @@ export function createPasture(container, controls) {
   function onUp(event) {
     const wasDown = pointers.has(event.pointerId); pointers.delete(event.pointerId); pinchDistance = distance();
     if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
-    if (wasDown && !dragged && event.type !== 'pointercancel') { updateCamera(); pick(event.clientX, event.clientY); }
+    if (wasDown && !dragged && event.type !== 'pointercancel') {
+      updateCamera(); const stock = pick(event.clientX, event.clientY);
+      if (stock) controls.onSelect?.(stock);
+    }
     lastInput = performance.now(); requestFrame();
   }
   function onLeave() { hover = null; if (!pointers.size) controls.tooltip.hidden = true; }

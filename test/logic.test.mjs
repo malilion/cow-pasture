@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { breadth, changePct, decodeSnapshot, filterStocks, freshness, industryAggregates, isMarketHours, mood, rankings, refreshDelay, vsIndex } from '../docs/js/logic.js';
+import { breadth, changePct, decodeSnapshot, filterStocks, freshness, industryAggregates, isMarketHours, mood, pickStock, rankings, refreshDelay, sparkPoints, topMovers, vsIndex } from '../docs/js/logic.js';
+import { detailMarkup } from '../docs/js/detail.js';
 import { createSnapshot, industryMap, normalizeEod, parseMis } from '../scripts/lib/normalize.mjs';
 import { escapeHtml, format, formatPrice, formatVolume, stockDetail, badges, pctText, tileColor, vsText } from '../docs/js/display.js';
 const fixture = async name => JSON.parse(await readFile(new URL(`fixtures/${name}.sample.json`, import.meta.url), 'utf8'));
@@ -111,4 +112,61 @@ test('價格最多兩位小數、指數兩位、成交量以整數張顯示', ()
   const stock = stocks.find(s => s.code === '2330');
   assert.doesNotMatch(badges(stock), /quote-badge/);
   assert.match(stockDetail(stock), /成交量 40,305 張/);
+});
+
+test('明細選股以完整代碼或市場鍵值比對，保留 ETF 的前導零', () => {
+  assert.equal(pickStock(stocks, ' 2330 '), stocks.find(s => s.code === '2330'));
+  assert.equal(pickStock(stocks, 'otc:6488')?.code, '6488');
+  assert.equal(pickStock(stocks, '0050')?.code, '0050');
+  for (const key of ['', null, '233', '50', '<script>']) assert.equal(pickStock(stocks, key), null);
+});
+
+test('異動焦點依絕對漲跌排序並包含正反向，缺值／平盤不列入且不修改輸入', () => {
+  const rows = Array.from({ length: 10 }, (_, i) => ({ code: String(i), pct: -20 + i }));
+  rows.push({ code: 'up', pct: 1 }, { code: 'flat', pct: 0 }, { code: 'missing', pct: null }, { code: 'nan', pct: NaN });
+  const before = structuredClone(rows), result = topMovers(rows);
+  assert.equal(result.length, 8); assert.equal(result[0].pct, -20);
+  assert.equal(result.at(-1).code, 'up');
+  assert.deepEqual(rows, before);
+  assert.equal(topMovers(rows, 1)[0].pct, -20);
+  assert.deepEqual(topMovers(rows, 0), []);
+  assert.deepEqual(topMovers([{ code: 'a', pct: 0 }, { code: 'b', pct: null }]), []);
+  assert.deepEqual(topMovers([{ code: 'b', pct: -2 }, { code: 'a', pct: 2 }]).map(s => s.code), ['a', 'b']);
+  assert.equal(topMovers(stocks).length, 8);
+});
+
+test('價位示意只使用存在的開高低與現價，可選前收；缺資料不產生路徑', () => {
+  const quote = { prev: 100, open: 101, high: 105, low: 98, price: 103 }, before = { ...quote };
+  const points = sparkPoints(quote);
+  assert.deepEqual(points.map(p => p.value), [100, 101, 105, 98, 103]);
+  assert.ok(points[2].y < points[3].y);
+  assert.ok(points.every(p => Number.isFinite(p.x) && Number.isFinite(p.y) && p.x >= 8 && p.x <= 312 && p.y >= 8 && p.y <= 92));
+  assert.equal(sparkPoints({ ...quote, prev: null }).length, 4);
+  for (const field of ['open', 'high', 'low', 'price']) {
+    for (const missing of [null, undefined, NaN, 0, -1]) assert.deepEqual(sparkPoints({ ...quote, [field]: missing }), []);
+  }
+  assert.deepEqual(sparkPoints({ ...quote, high: 90 }), []);
+  assert.deepEqual(sparkPoints(null), []);
+  assert.ok(sparkPoints({ prev: 5, open: 5, high: 5, low: 5, price: 5 }).every(p => p.y === 50));
+  assert.deepEqual(quote, before);
+});
+
+test('產業精確篩選與代碼／方向／市場條件可疊加', () => {
+  assert.ok(filterStocks(stocks, { industry: '半導體' }).length > 0);
+  assert.ok(filterStocks(stocks, { industry: '半導體' }).every(s => s.ind === '半導體'));
+  assert.equal(filterStocks(stocks, { industry: '半導體', query: '2330', market: 'tse', direction: 'down' })[0].code, '2330');
+  assert.equal(filterStocks(stocks, { industry: '不存在' }).length, 0);
+});
+
+test('明細不捏造個股時刻，價位示意有明確標示，來源字串均跳脫', () => {
+  const stock = stocks.find(s => s.code === '2330');
+  const html = detailMarkup({ ...stock, ind: '<img onerror="x">', est: 1 }, snapshot);
+  assert.match(html, /今日價位區間示意（非分時圖）/);
+  assert.match(html, /未提供個股時刻/);
+  assert.match(html, /快照最新時刻不代表此檔成交時刻/);
+  assert.match(html, /&lt;img onerror=&quot;x&quot;&gt;/);
+  assert.match(html, /委買賣推估，非成交價/);
+  assert.match(html, /漲停/); assert.match(html, /跌停/);
+  assert.doesNotMatch(detailMarkup({ ...stock, open: null }, snapshot), /<svg/);
+  assert.doesNotMatch(detailMarkup({ ...stock, price: null }, snapshot), /<svg/);
 });
