@@ -34,16 +34,51 @@ jobs:
         with:
           node-version: '22'
       - uses: actions/configure-pages@v5
-      - name: 暫時安裝 runner 部署工具（不寫入套件清單與 lockfile）
-        run: npm install --no-save --no-package-lock @actions/artifact@2.3.2 @actions/core@1.11.1 @actions/github@6.0.0
-      # JavaScript action 繼承 runner 的 ACTIONS_RUNTIME_* / ACTIONS_RESULTS_URL、OIDC
-      # 與 GITHUB_REPOSITORY / GITHUB_RUN_ID / GITHUB_SHA 等環境，在同一程序執行市場循環。
-      - name: 循環擷取、檢查與部署 Pages
-        id: deployment
-        uses: ./.github/actions/market-loop
+      - name: 決定單次或循環模式
+        id: mode
+        run: node scripts/lib/loop-policy.mjs
+      # run-cycle 首輪一律嘗試載入線上快照；失敗則完整擷取，成功則僅更新 MIS。
+      - name: 載入線上快照、擷取第 1 輪並檢查
+        run: node scripts/run-cycle.mjs --cycle 1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MARKET_LOOP_SECONDS: '270'
-          MARKET_CYCLE_TARGET_MS: '100000'
-          MARKET_CYCLE_MIN_MS: '90000'
-          MARKET_UNTIL_TAIPEI: '13:35'
+          MARKET_LOOP: ${{ steps.mode.outputs.loop }}
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+          name: github-pages-1
+      - uses: actions/deploy-pages@v4
+        id: deployment
+        with:
+          artifact_name: github-pages-1
+      - name: 等待下一輪
+        if: steps.mode.outputs.loop == 'true'
+        run: sleep 15
+      - name: 擷取第 2 輪（僅 MIS）
+        if: steps.mode.outputs.loop == 'true'
+        run: node scripts/run-cycle.mjs --cycle 2
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.mode.outputs.loop == 'true'
+        with:
+          path: docs
+          name: github-pages-2
+      - uses: actions/deploy-pages@v4
+        if: steps.mode.outputs.loop == 'true'
+        id: deployment2
+        with:
+          artifact_name: github-pages-2
+      - name: 等待下一輪
+        if: steps.mode.outputs.loop == 'true'
+        run: sleep 15
+      - name: 擷取第 3 輪（僅 MIS）
+        if: steps.mode.outputs.loop == 'true'
+        run: node scripts/run-cycle.mjs --cycle 3
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.mode.outputs.loop == 'true'
+        with:
+          path: docs
+          name: github-pages-3
+      - uses: actions/deploy-pages@v4
+        if: steps.mode.outputs.loop == 'true'
+        id: deployment3
+        with:
+          artifact_name: github-pages-3

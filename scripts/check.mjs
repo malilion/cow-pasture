@@ -18,5 +18,5 @@ for (const file of files) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 console.log(`語法檢查通過：${files.length} 個模組`);
-const result = spawnSync(process.execPath, ['--test', 'test/'], { cwd: root, stdio: 'inherit' });
+const result = spawnSync(process.execPath, ['--test', 'test/index.js'], { cwd: root, stdio: 'inherit' });
 process.exitCode = result.status ?? 1;

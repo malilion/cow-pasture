@@ -39,7 +39,7 @@
 
 普通股與 ETF 依 `^(\d{4}|00\d{2,4}[A-Z]?)$` 過濾，排除權證、債券與 `01001T` 等不符格式商品；`00` 開頭標記 ETF。實際檔數以每次 OpenAPI 結果為準，不硬編預期市場總數。
 
-循環模式首輪優先從 `LIVE_SNAPSHOT_URL`（預設 `https://malilion.github.io/cow-pasture/data/snapshot.json`）載入快照後使用 `--quotes-only`；載入失敗或單次模式則以 `Promise.allSettled` 並行擷取四個股票清單／產業來源，再查 MIS。後續輪次使用 `--quotes-only`，從前次快照重建股票與產業清單，只查 MIS，缺檔時自動回到完整擷取。快照另保留首輪真正的 EOD 欄位供後續缺漏回補，不把上輪盤中價當成盤後價。
+每個 job 首輪（含單次模式）都嘗試從 `LIVE_SNAPSHOT_URL`（預設 `https://malilion.github.io/cow-pasture/data/snapshot.json`）載入快照，成功後使用 `--quotes-only`；載入失敗則以 `Promise.allSettled` 並行擷取四個股票清單／產業來源，再查 MIS，不因 seed 失敗中止。後續輪次使用 `--quotes-only`，從前次快照重建股票與產業清單，只查 MIS，缺檔時自動回到完整擷取。快照另保留首輪真正的 EOD 欄位供後續缺漏回補，不把上輪盤中價當成盤後價。
 
 MIS 每批 120 檔、循序請求，批次間隔預設 350ms；quotes-only 或擷取預算不超過 120 秒時改為 100ms。每次請求最長 15 秒、失敗重試兩次；連續三批失敗便停止。獨立完整擷取預算為約 5.5 分鐘，循環中的完整與 quotes-only 擷取預算最長約 110 秒，單次 workflow 完整擷取最長 210 秒，為 Pages 部署保留時間；不足時用盤後回補。`z` 缺值時先使用最近成交 `trade.z`，兩者均為成交價、不標估價；再依序使用有效買賣價中點、單邊買價／賣價，僅委買賣推估標示「估」；皆無則保留未成交。盤後股數轉為張；特殊漲跌字串不推算前收，不會捏造漲跌幅。盤後 API 未提供指數與報價時刻，因此顯示缺資料，而非填入自造數字或時間。
 
@@ -54,9 +54,10 @@ TWSE MIS ─────────────── 每批 120 檔、指數 �
                        ↓ 正規化、缺值回補、日期標記
                  docs/data/snapshot.json
                        ↓ 首輪執行 check.mjs
-          market-loop.mjs → deploy-pages-once.mjs
-                       ↓ tar + @actions/artifact + OIDC
-              GitHub Pages deployments REST API
+                   run-cycle.mjs
+                       ↓ actions/upload-pages-artifact@v3
+                   actions/deploy-pages@v4
+                       ↓
                  GitHub Pages 靜態網站
                        ↓ 同源 fetch
            儀表板 + 動態載入本地 three.js
@@ -75,17 +76,17 @@ TWSE MIS ─────────────── 每批 120 檔、指數 �
 - cron: '20 6 * * 1-5'     # 臺北週一至週五 14:20 收盤單次快照
 ```
 
-臺北週一至週五 09:00–13:35，Actions 每 5 分鐘啟動 job，每個 job 以約 **90–120 秒**為目標循環擷取並部署 Pages；首輪完整擷取與測試，之後只更新 MIS、略過測試。每輪記錄擷取／部署耗時、`quoteTime` 與 `generatedAt`。工作預設 270 秒，剩餘不到 80 秒或臺北時間達 13:35，就不再開始新輪次；整個 job 上限 6 分鐘。接近交接時可把週期間隔縮至 90 秒，保留下一輪的時間。
+臺北週一至週五 09:00–13:35，Actions 每 5 分鐘啟動 job，啟動時由 `scripts/lib/loop-policy.mjs` 依臺北時間與事件輸出 `loop=true|false` 至 `$GITHUB_OUTPUT`。循環模式依序執行最多 **3 次官方 Pages 部署**：`scripts/run-cycle.mjs --cycle 1` 嘗試 seed、擷取並執行一次 `check.mjs`，第 2、3 輪只更新 MIS、略過檢查。每輪擷取後，分別上傳 `github-pages-1`、`github-pages-2`、`github-pages-3`，再由官方 deploy action 部署對應 artifact。擷取通常約 80–100 秒，加上部署與輪間 `sleep 15`，以約 **90–120 秒**間隔為目標，實際間隔依網路與部署耗時變動。run-cycle 記錄擷取與總耗時、`quoteTime`、`generatedAt`；部署狀態由官方 action 記錄。整個 job 上限 6 分鐘，逾時可能無法完成三輪。
 
-cron 本身涵蓋至 13:55，因此 13:35–13:55 仍會啟動**單次**完整快照；14:20 收盤排程也只執行一次。盤中 push／手動執行採循環模式，其餘時段與週末採單次。平日休市仍會執行，真正行情日期由來源決定，這裡未另接交易日曆。環境變數 `MARKET_LOOP_SECONDS=270`、`MARKET_CYCLE_TARGET_MS=100000`、`MARKET_CYCLE_MIN_MS=90000`、`MARKET_UNTIL_TAIPEI=13:35` 可調整循環。
+cron 本身涵蓋至 13:55，因此 13:35–13:55 啟動的 job 採**單次**快照；14:20 收盤排程也只執行一次。盤中 push／手動執行採循環模式，其餘時段與週末採單次。模式在 job 開始時決定一次，後兩輪沿用同一輸出，可能跨過 13:35。平日休市仍會執行，真正行情日期由來源決定，這裡未另接交易日曆。
 
-`concurrency.group: pages`、`cancel-in-progress: false` 讓前一個 job 完成最後一輪再交接，避免工作同時部署。GitHub 預設只保留一個 pending run，新的排隊執行可能取代舊的 pending run；[官方 concurrency 說明](https://docs.github.com/en/actions/concepts/workflows-and-actions/concurrency)。首輪失敗會回傳非零；後續輪次失敗在時間允許下重試一次，已有成功部署就保留成功結果；完全沒有成功部署則失敗。
+`concurrency.group: pages`、`cancel-in-progress: false` 讓前一個 job 完成再交接，避免工作同時部署。GitHub 預設只保留一個 pending run，新的排隊執行可能取代舊的 pending run；[官方 concurrency 說明](https://docs.github.com/en/actions/concepts/workflows-and-actions/concurrency)。任一輪擷取、檢查或部署失敗即停止後續步驟並讓 job 失敗；已成功發布的 Pages 仍保留，擷取失敗不會上傳或部署 seed／舊快照。environment `github-pages` 的 URL 使用第一輪 `deployment.outputs.page_url`。
 
-部署工具只由 runner 執行 `npm install --no-save --no-package-lock @actions/artifact@2.3.2 @actions/core@1.11.1 @actions/github@6.0.0` 暫時安裝，`package.json` 維持零依賴，不提交 `node_modules` 或 lockfile。本機 JavaScript action 在同一程序匯入並執行 `scripts/market-loop.mjs`，保留 runner 專供 JavaScript action 的 artifact／OIDC context。OIDC 優先直接 GET runner endpoint，audience 明確設為 `https://github.com/<owner>`；環境變數缺少時才回退 toolkit。每輪依官方相容格式將 `docs/`（含隱藏檔與 `.nojekyll`，排除 `.git`）打成未壓縮 `artifact.tar`，由 artifact client 壓縮成 ZIP；避免使用會被 Pages 拒絕的 gzip tar（[官方問題紀錄](https://github.com/actions/upload-pages-artifact/issues/71)）。使用獨立 artifact id（JSON number）與 Pages REST API 部署並等待成功，逾時則請求取消；失敗時記錄 HTTP status、遮蔽 token 的回應內容與 GitHub request id，不輸出 OIDC token。不另外執行 upload-pages-artifact／deploy-pages action。API 流程參照 [actions/deploy-pages v4](https://github.com/actions/deploy-pages/blob/v4/src/internal/api-client.js)。
+workflow 使用 `actions/checkout@v4`、`actions/setup-node@v4`（Node 22）、`actions/configure-pages@v5`，再於每輪執行 [`actions/upload-pages-artifact@v3`](https://github.com/actions/upload-pages-artifact/tree/v3)（`path: docs`、保留 1 天）與 [`actions/deploy-pages@v4`](https://github.com/actions/deploy-pages/tree/v4)（`artifact_name` 對應該輪名稱）。權限維持 `contents: read`、`pages: write`、`id-token: write`。先前自訂 `POST /repos/.../pages/deployments` 在此 repo 使用 `GITHUB_TOKEN`、raw OIDC 與數字 artifact id 仍回 HTTP 404，因此改回曾成功的官方 actions，讓官方工具處理打包、OIDC 與部署輪詢。workflow 不再暫裝 `@actions/*` 套件，也不使用本機 `.github/actions/market-loop` 或自訂 Pages REST 部署；舊腳本僅保留供測試與參考，`package.json` 維持零依賴。
 
 前端在臺北平日 09:00–14:30 約每 **60 秒**讀取同源快照，使用 `Date.now()` 查詢參數及 `cache: 'no-store'` 避免舊快取；其他時段每 10 分鐘，分頁隱藏時暫停。GitHub cron 可能排隊、延遲或漏跑，Pages 部署也需要時間；90–120 秒是更新目標，無法保證每次達成。MIS 本身也可能延遲，**非即時逐筆行情**，請同時看報價日期、時間與擷取時間。
 
-指定 cron 每個平日共 **61 次**（60 次盤中時段排程＋1 次收盤），22 個平日約 **1,342 次／月**；push／手動執行另計。前 55 次可循環，以每次最多約 4.5 分鐘、另 6 次單次各約 1 分鐘估計，每月約 5,600 runner 分鐘，實際依完成輪數、網路、重試及部署耗時變動。倉庫現為公開，使用標準 `ubuntu-latest` runner，適用 [GitHub 公開倉庫 Actions 免費使用規則](https://docs.github.com/en/actions/concepts/billing-and-usage)；仍應留意 artifact 儲存與服務限制，artifact 設為保留 1 天。
+指定 cron 每個平日共 **61 次**（60 次盤中時段排程＋1 次收盤），22 個平日約 **1,342 次／月**；push／手動執行另計。以每 5 分鐘 3 次、約 60 個時槽粗估，約 **180 次部署／日**；實際依 13:35 後單次模式、排程延遲與成功輪數而減少。這是本公開 repo 接受的更新頻率，使用標準 `ubuntu-latest` runner，適用 [GitHub 公開倉庫 Actions 免費使用規則](https://docs.github.com/en/actions/concepts/billing-and-usage)。[Pages 官方限制](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits) 說明自訂 Actions workflow 不受每小時 10 次 build 軟限制，但高頻 Pages 部署仍可能觸發服務速率限制（HTTP 429）；需持續留意部署紀錄、artifact 儲存與服務限制，必要時降低輪數或頻率，並非保證無限額度。
 
 ## 本機開發
 
@@ -105,14 +106,16 @@ npm run snapshot:fixtures
 npm start  # http://localhost:5173；PORT 可覆寫
 ```
 
-`npm run build` 與 `npm test` 都執行 `node scripts/check.mjs`：逐一 `node --check` 第一方 JS/MJS，再執行 `node --test test/`。無打包器或編譯步驟；本地 three.js 已隨 repo 提供。請使用 HTTP 伺服器開啟，ES modules 不支援直接雙擊 `file://`。
+`npm run build` 與 `npm test` 都執行 `node scripts/check.mjs`：逐一 `node --check` 第一方 JS/MJS，再執行 `node --test test/index.js`。無打包器或編譯步驟；本地 three.js 已隨 repo 提供。請使用 HTTP 伺服器開啟，ES modules 不支援直接雙擊 `file://`。
 
 ```text
 scripts/lib/normalize.mjs    純解析、正規化與快照封裝
 scripts/fetch-snapshot.mjs   OpenAPI／MIS 擷取與 quotes-only
-scripts/market-loop.mjs      循環、首輪測試與錯誤重試
-scripts/deploy-pages-once.mjs artifact／OIDC／Pages 部署與狀態輪詢
-scripts/lib/loop-policy.mjs  臺北交易時段與週期間隔純函式
+scripts/run-cycle.mjs        單輪 seed／擷取、首輪檢查與時間記錄
+scripts/lib/cycle-support.mjs 共用線上快照 seed 與 check runner
+scripts/lib/loop-policy.mjs  臺北交易時段、週期間隔與 mode 輸出 CLI
+scripts/market-loop.mjs      舊自訂循環（保留測試，workflow 未使用）
+scripts/deploy-pages-once.mjs 舊自訂 Pages 部署（保留測試，workflow 未使用）
 scripts/fixture-snapshot.mjs 離線真實樣本產生器
 scripts/serve.mjs            靜態 HTTP 伺服器
 scripts/check.mjs            語法與 node:test
@@ -123,7 +126,7 @@ docs/js/app.js               介面、輪詢、事件委派
 docs/js/pasture.js           three.js 牧場、互動與資源回收
 ```
 
-測試以隨附 fixtures 為行情依據；網路錯誤測試只使用本機 stub，不會對外連線。測試涵蓋 MIS-only 不查 OpenAPI、原始 EOD 回補、時段邊界、重試、artifact 打包、Pages 狀態與逾時取消。正式 artifact／OIDC／Pages 部署仍需 GitHub Actions runner 才能驗證。
+測試以隨附 fixtures 為行情依據；網路錯誤測試只使用本機 stub，不會對外連線。測試涵蓋 run-cycle 首輪 seed 成敗、quotes-only 與檢查次數、錯誤傳遞、mode 的臺北時段與事件判斷、`$GITHUB_OUTPUT` 寫入、MIS-only 不查 OpenAPI 與原始 EOD 回補。舊自訂部署的 artifact 打包、Pages 狀態與逾時取消測試仍保留。正式官方 actions 部署仍需 GitHub Actions runner 才能驗證。
 
 ## 聲明與授權
 
