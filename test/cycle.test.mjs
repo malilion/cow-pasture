@@ -13,7 +13,7 @@ test('cycle 1 seeds in both modes, falls back to full fetch, and checks once; la
         const calls = [], logs = [];
         let clock = 0;
         const snapshot = { quoteTime: '09:01:00', generatedAt: '2026-11-06T01:01:01Z' };
-        const result = await runCycle({ cycle, env: { MARKET_LOOP: loop, LIVE_SNAPSHOT_URL: 'https://example.com/live.json' },
+        const result = await runCycle({ seedHistory: async () => {}, append: async () => {}, cycle, env: { MARKET_LOOP: loop, LIVE_SNAPSHOT_URL: 'https://example.com/live.json' },
           now: () => clock, log: line => logs.push(line), seed: async options => {
             calls.push('seed');
             assert.equal(options.url, 'https://example.com/live.json');
@@ -40,13 +40,13 @@ test('cycle 1 seeds in both modes, falls back to full fetch, and checks once; la
 test('fetch/check failures propagate and still log cycle timing', async () => {
   for (const cycle of [1, 2, 3]) {
     const logs = [];
-    await assert.rejects(runCycle({ cycle, seed: async () => false,
+    await assert.rejects(runCycle({ seedHistory: async () => {}, append: async () => {}, cycle, seed: async () => false,
       fetcher: async () => { throw new Error('fetch failed'); },
       check: async () => assert.fail('cannot check a failed fetch'), log: line => logs.push(line),
     }), /fetch failed/);
     assert.match(logs[0], /quoteTime 無 \| generatedAt 無/);
   }
-  await assert.rejects(runCycle({ seed: async () => true, fetcher: async () => ({}),
+  await assert.rejects(runCycle({ seedHistory: async () => {}, append: async () => {}, seed: async () => true, fetcher: async () => ({}),
     check: async () => { throw new Error('check failed'); }, log: () => {},
   }), /check failed/);
 });

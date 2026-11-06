@@ -1,10 +1,15 @@
-import { breadth, changePct, decodeSnapshot, filterStocks, freshness, industryAggregates, isMarketHours, mood, pickStock, rankings, refreshDelay, topMovers } from './logic.js';
+import { breadth, changePct, decodeSnapshot, filterStocks, freshness, industryAggregates, historySeries, sectorHistory, isMarketHours, mood, pickStock, rankings, refreshDelay, topMovers } from './logic.js';
 import { badges, escapeHtml as esc, format, formatPrice, formatVolume, pctText, signed, tileColor, tone, vsText } from './display.js';
+import { createPersonal, sparkMarkup } from './personal.js';
+import { createShare } from './share.js';
 import { createStockPanel } from './detail.js';
 
 const $ = id => document.getElementById(id);
-const state = { snapshot: null, stocks: [], scene: 'actual', rank: 'up', rankLimit: 20, limit: 30, pasture: null, loadingPasture: false, industriesExpanded: false, industryOpen: new Map() };
-const stockPanel = createStockPanel({ dialog: $('stock-panel'), getStocks: () => state.stocks, getSnapshot: () => state.snapshot });
+const state = { snapshot: null, history: null, stocks: [], scene: 'actual', rank: 'up', rankLimit: 20, limit: 30, pasture: null, loadingPasture: false, industriesExpanded: false, industryOpen: new Map() };
+const stockPanel = createStockPanel({ dialog: $('stock-panel'), getStocks: () => state.stocks, getSnapshot: () => state.snapshot, getHistory: () => state.history,
+  isWatched: code => personal.isWatched(code), onWatch: code => personal.toggle(code), onCompare: code => personal.addCompare(code) });
+const personal = createPersonal({ getStocks: () => state.stocks, getHistory: () => state.history, openStock: (key, trigger) => stockPanel.open(key, trigger) });
+createShare({ getSnapshot: () => state.snapshot, getStocks: () => state.stocks });
 const compactHeatmap = matchMedia('(max-width: 600px)');
 const scenes = new Set(['actual', 'down', 'crash', 'flat', 'up']);
 const sceneParam = new URL(location.href).searchParams.get('scene');
@@ -36,9 +41,9 @@ function renderTicker() {
   $('ticker-pause').hidden = !stocks.length;
 }
 function renderIndices() {
-  $('indices').innerHTML = Object.values(state.snapshot.indices).map(index => {
+  $('indices').innerHTML = Object.entries(state.snapshot.indices).map(([key, index]) => {
     const pct = changePct(index.price, index.prev), change = pct === null ? null : index.price - index.prev;
-    return `<article class="card index-card"><div class="index-top"><h2>${esc(index.name)}</h2><span>${esc(index.time ?? '無可用指數')}</span></div><div class="index-value ${tone(pct)}"><strong>${format(index.price)}</strong><span>${signed(change)} 點（${pctText(pct)}）</span></div><div class="index-range"><span>開盤<b>${format(index.open)}</b></span><span>最高<b>${format(index.high)}</b></span><span>最低<b>${format(index.low)}</b></span></div><span class="index-spark ${tone(pct)}" aria-hidden="true">${pct === null || pct === 0 ? '〜' : pct > 0 ? '↗' : '↘'}</span></article>`;
+    return `<article class="card index-card"><div class="index-top"><h2>${esc(index.name)}</h2><span>${esc(index.time ?? '無可用指數')}</span></div><div class="index-value ${tone(pct)}"><strong>${format(index.price)}</strong><span>${signed(change)} 點（${pctText(pct)}）</span></div><div class="index-range"><span>開盤<b>${format(index.open)}</b></span><span>最高<b>${format(index.high)}</b></span><span>最低<b>${format(index.low)}</b></span></div>${sparkMarkup(historySeries(state.history, key), `${index.name} 今日盤中走勢`)}<span class="index-spark ${tone(pct)}" aria-hidden="true">${pct === null || pct === 0 ? '〜' : pct > 0 ? '↗' : '↘'}</span></article>`;
   }).join('');
 }
 function renderBreadth() {
@@ -97,7 +102,7 @@ function renderIndustries() {
   const pct = changePct(state.snapshot.indices.taiex?.price, state.snapshot.indices.taiex?.prev);
   // Suppress comparison when an industry's average mixes quote dates.
   const mixedIndustries = new Set(state.stocks.filter(s => s.date !== state.snapshot.marketDate).map(s => s.ind));
-  $('industry-rows').innerHTML = industryAggregates(state.stocks, pct).map(s => `<tr data-industry-target="${esc(s.name)}"><td><button type="button" class="row-link" data-industry-target="${esc(s.name)}">${esc(s.name)}</button></td><td>${s.count}</td><td class="${tone(s.avg)}">${pctText(s.avg)}</td><td><span class="up">${s.up}</span> / <span class="down">${s.down}</span></td><td class="${tone(mixedIndustries.has(s.name) ? null : s.vs)}">${vsText(mixedIndustries.has(s.name) ? null : s.vs)}</td></tr>`).join('');
+  $('industry-rows').innerHTML = industryAggregates(state.stocks, pct).map(s => `<tr data-industry-target="${esc(s.name)}"><td><button type="button" class="row-link" data-industry-target="${esc(s.name)}">${esc(s.name)}${sparkMarkup(sectorHistory(state.history, s.name), `${s.name} 等權平均漲跌幅走勢`)}</button></td><td>${s.count}</td><td class="${tone(s.avg)}">${pctText(s.avg)}</td><td><span class="up">${s.up}</span> / <span class="down">${s.down}</span></td><td class="${tone(mixedIndustries.has(s.name) ? null : s.vs)}">${vsText(mixedIndustries.has(s.name) ? null : s.vs)}</td></tr>`).join('');
   const selected = $('search-industry').value;
   $('search-industry').innerHTML = '<option value="all">所有產業</option>' + [...new Set(state.stocks.map(s => s.ind))].sort((a, b) => a.localeCompare(b, 'zh-Hant')).map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join('');
   $('search-industry').value = [...$('search-industry').options].some(o => o.value === selected) ? selected : 'all';
@@ -158,7 +163,7 @@ async function loadPasture() {
   finally { state.loadingPasture = false; }
 }
 function render() {
-  renderFreshness(); renderIndices(); renderBreadth(); renderHeatmap(); renderRankings(); renderEtf(); renderIndustries(); renderSearch(); renderMood(); renderTicker(); stockPanel.refresh();
+  renderFreshness(); renderIndices(); renderBreadth(); renderHeatmap(); renderRankings(); renderEtf(); renderIndustries(); renderSearch(); renderMood(); renderTicker(); stockPanel.refresh(); personal.refresh(); $('share-market').disabled = false;
   const notes = [], meta = state.snapshot.meta ?? {};
   if (meta.fixture) notes.push('歷史樣本模式：僅顯示隨附的真實 API fixtures，非全市場、非今日報價。');
   if (meta.incompleteUniverse?.length) notes.push(`資料範圍不完整：${meta.incompleteUniverse.join('、')}。`);
@@ -180,10 +185,16 @@ async function fetchData() {
   aborter = new AbortController();
   const timeout = setTimeout(() => aborter.abort(), 20_000);
   try {
-    const response = await fetch(`data/snapshot.json?t=${Date.now()}`, { signal: aborter.signal, cache: 'no-store' });
+    const stamp = Date.now();
+    const [response, historyData] = await Promise.all([
+      fetch(`data/snapshot.json?t=${stamp}`, { signal: aborter.signal, cache: 'no-store' }),
+      fetch(`data/history.json?t=${stamp}`, { signal: aborter.signal, cache: 'no-store' })
+        .then(response => response.ok ? response.json() : null).catch(() => null),
+    ]);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const snapshot = await response.json(), stocks = decodeSnapshot(snapshot);
     if (!snapshot.indices || !snapshot.indices.taiex || !snapshot.indices.otc || !stocks.length) throw new Error('快照沒有可用資料');
+    state.history = historyData?.v === 1 && historyData.marketDate === snapshot.marketDate ? historyData : null;
     state.snapshot = snapshot; state.stocks = stocks; $('error-banner').hidden = true; render();
   } catch (error) {
     if (!stopped) {
@@ -206,7 +217,7 @@ $('scene-control').addEventListener('change', event => {
   const url = new URL(location.href); if (state.scene === 'actual') url.searchParams.delete('scene'); else url.searchParams.set('scene', state.scene);
   history.replaceState(null, '', url); renderMood();
 });
-window.addEventListener('popstate', () => { const scene = new URL(location.href).searchParams.get('scene'); state.scene = scenes.has(scene) ? scene : 'actual'; for (const input of document.querySelectorAll('input[name=scene]')) input.checked = input.value === state.scene; renderMood(); stockPanel.syncUrl(); });
+window.addEventListener('popstate', () => { const scene = new URL(location.href).searchParams.get('scene'); state.scene = scenes.has(scene) ? scene : 'actual'; for (const input of document.querySelectorAll('input[name=scene]')) input.checked = input.value === state.scene; renderMood(); stockPanel.syncUrl(); personal.syncUrl(); });
 $('ranking-market').addEventListener('change', () => { state.rankLimit = 20; renderRankings(); });
 $('ranking-more').addEventListener('click', () => { state.rankLimit = 50; renderRankings(); $('ranking-list').querySelectorAll('button')[20]?.focus(); });
 function selectRank(button) {
@@ -281,3 +292,20 @@ const tickerObserver = new ResizeObserver(entries => {
 tickerObserver.observe($('ticker-viewport'));
 window.addEventListener('pagehide', event => { if (!event.persisted) { stopped = true; clearTimeout(timer); clearTimeout(searchTimer); stockPanel.dispose(); tickerObserver.disconnect(); clearInterval(freshnessTimer); aborter?.abort(); observer.disconnect(); compactHeatmap.removeEventListener('change', onHeatmapSize); state.pasture?.dispose(); } });
 fetchData();
+
+for (const dialog of document.querySelectorAll('.utility-dialog')) {
+  dialog.querySelector('[data-close-dialog]').addEventListener('click', () => dialog.close());
+}
+document.addEventListener('keydown', event => {
+  if (event.key === '/' && !event.ctrlKey && !event.metaKey && !event.altKey &&
+      !event.target.closest('input, textarea, select, dialog, [contenteditable="true"]') && !document.querySelector('dialog[open]')) {
+    event.preventDefault(); $('query').focus();
+  }
+});
+$('ranking-list').addEventListener('keydown', event => {
+  if (!['Home', 'End', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+  const buttons = [...$('ranking-list').querySelectorAll('button')], index = buttons.indexOf(document.activeElement);
+  if (index < 0) return;
+  event.preventDefault();
+  buttons[event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : Math.max(0, Math.min(buttons.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))]?.focus();
+});

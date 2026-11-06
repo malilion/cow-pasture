@@ -8,3 +8,5 @@ import './pasture.test.mjs';
 import './loop.test.mjs';
 import './deploy.test.mjs';
 import './cycle.test.mjs';
+import './history.test.mjs';
+import './personal.test.mjs';

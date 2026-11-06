@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { appendHistoryFile, seedLiveHistory } from './lib/history.mjs';
 import { fetchSnapshot } from './fetch-snapshot.mjs';
 import { checkModules, seedLiveSnapshot } from './lib/cycle-support.mjs';
 
@@ -11,6 +12,7 @@ export function parseCycle(args) {
 }
 export async function runCycle({ cycle = 1, env = process.env, out = 'docs/data',
   fetcher = fetchSnapshot, seed = seedLiveSnapshot, check = checkModules,
+  seedHistory = seedLiveHistory, append = appendHistoryFile,
   now = Date.now, log = console.log } = {}) {
   if (!Number.isSafeInteger(cycle) || cycle < 1) throw new Error('cycle 必須為正整數');
   const start = now();
@@ -19,11 +21,13 @@ export async function runCycle({ cycle = 1, env = process.env, out = 'docs/data'
     // The seed helper returns false on failure and leaves any existing snapshot intact.
     const seeded = cycle === 1 && await seed({ url: env.LIVE_SNAPSHOT_URL,
       out: resolve(out, 'snapshot.json'), log });
+    if (cycle === 1) await seedHistory({ url: env.LIVE_HISTORY_URL, out: resolve(out, 'history.json') });
     const fetchStart = now();
     try {
       snapshot = await fetcher({ out, quotesOnly: seeded || cycle > 1,
         budgetMs: cycle > 1 || env.MARKET_LOOP !== 'false' ? 110_000 : 210_000 });
     } finally { fetchMs = now() - fetchStart; }
+    await append({ snapshot, path: resolve(out, 'history.json') });
     if (cycle === 1) await check();
     return snapshot;
   } finally {

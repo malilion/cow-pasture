@@ -57,9 +57,10 @@ export function cowSupportHeight(tiles, origin, destination, scale) {
 
 export function createPasture(container, controls) {
   const mobile = matchMedia('(max-width: 600px)').matches;
+  const lowPower = mobile || navigator.connection?.saveData || navigator.deviceMemory <= 4 || navigator.hardwareConcurrency <= 4;
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
-  const renderer = new THREE.WebGLRenderer({ antialias: !mobile, alpha: true, powerPreference: 'low-power' });
-  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, mobile ? 1.5 : 2));
+  const renderer = new THREE.WebGLRenderer({ antialias: !lowPower, alpha: true, powerPreference: 'low-power' });
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, lowPower ? 1 : 2));
   renderer.setClearColor(0x000000, 0);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   container.replaceChildren(renderer.domElement);
@@ -168,7 +169,7 @@ export function createPasture(container, controls) {
     bladeGeometry.computeVertexNormals();
     const wilted = nextMood.state === 'red';
     materials.grass.color.set(wilted ? 0x9a8050 : 0x4e883f);
-    const grassCount = grassTiles.length ? Math.round((mobile ? 1800 : 4200) * (wilted ? 0.3 : nextMood.g)) : 0;
+    const grassCount = grassTiles.length ? Math.round((lowPower ? 600 : 4200) * (wilted ? 0.3 : nextMood.g)) : 0;
     grass = new THREE.InstancedMesh(bladeGeometry, materials.grass, grassCount);
     for (let i = 0; i < grassCount; i++) {
       const tile = grassTiles[Math.floor(fraction(i + 10) * grassTiles.length)];
@@ -178,7 +179,7 @@ export function createPasture(container, controls) {
     }
     grass.instanceMatrix.needsUpdate = true; grass.computeBoundingSphere(); scenery.add(grass);
     const flowerTiles = red.length ? red : tiles;
-    const flowerCount = wilted && flowerTiles.length ? Math.min(mobile ? 160 : 300, flowerTiles.length * 2) : 0;
+    const flowerCount = !lowPower && wilted && flowerTiles.length ? Math.min(mobile ? 160 : 300, flowerTiles.length * 2) : 0;
     flowers = new THREE.InstancedMesh(geometries.sphere, materials.flower, flowerCount);
     stems = new THREE.InstancedMesh(geometries.cylinder, materials.stem, flowerCount);
     for (let i = 0; i < flowerCount; i++) {
@@ -218,7 +219,7 @@ export function createPasture(container, controls) {
     previousTime = time;
     if (!reduced.matches) {
       elapsed += delta; grassTime.value = elapsed;
-      if (!pointers.size && time - lastInput > 6000) yaw += delta * 0.018;
+      if (!lowPower && !pointers.size && time - lastInput > 6000) yaw += delta * 0.018;
       herd.forEach((cow, i) => {
         cow.tail.rotation.x = Math.sin(elapsed * 1.7 + i) * 0.4;
         cow.head.rotation.z = cow.departing ? -0.05 : snapshotMood.state === 'flat' ? Math.sin(elapsed * 0.5) * 0.06 : -0.65 + Math.sin(elapsed * 1.8 + i) * 0.14;

@@ -113,3 +113,37 @@ export function freshness(snapshot, now = new Date()) {
     modeLabel: snapshot.mode === 'eod' ? '盤後資料（前一交易日收盤）' : active ? '盤中・約每 1–2 分鐘更新' : '收盤資料',
     stale: age === null || age > 30, dateLabel: `${snapshot.marketDate ?? '日期未提供'}${snapshot.quoteTime ? ` ${snapshot.quoteTime}` : '（未提供時間）'}` };
 }
+
+const validCode = code => typeof code === 'string' && /^(\d{4}|00\d{2,4}[A-Z]?)$/.test(code);
+export function loadWatch(raw) {
+  try {
+    const value = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Array.isArray(value) ? [...new Set(value.filter(validCode))].slice(0, 40) : [];
+  } catch { return []; }
+}
+export function toggleWatch(list, code) {
+  const clean = loadWatch(list);
+  if (!validCode(code)) return clean;
+  return clean.includes(code) ? clean.filter(x => x !== code) : [...clean, code].slice(0, 40);
+}
+export function parseCompare(raw) {
+  return typeof raw === 'string' ? [...new Set(raw.split(',').map(s => s.trim()).filter(validCode))].slice(0, 2) : [];
+}
+export const formatCompare = list => parseCompare(Array.isArray(list) ? list.join(',') : '').join(',');
+export const logoId = value => ['cute', 'fine', 'mature', 'lion'].includes(value) ? value : 'cute';
+export function historySeries(history, key) {
+  if (history?.v !== 1 || !Array.isArray(history.times)) return [];
+  const values = history.series?.[key] ?? history.indices?.[key];
+  return Array.isArray(values) && values.length === history.times.length ? values.map(x => Number.isFinite(x) ? x : null) : [];
+}
+export function sectorHistory(history, name) {
+  return historySeries(history && { ...history, series: history.industries, indices: {} }, name);
+}
+export function linePoints(values) {
+  if (!Array.isArray(values)) return [];
+  const finite = values.filter(Number.isFinite);
+  if (!finite.length) return [];
+  const min = Math.min(...finite), range = Math.max(...finite) - min;
+  return values.flatMap((value, i) => Number.isFinite(value) ? [{ value, x: 8 + (values.length > 1 ? i / (values.length - 1) : 0.5) * 304,
+    y: 8 + (range ? 1 - (value - min) / range : 0.5) * 84 }] : []);
+}

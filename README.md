@@ -24,11 +24,30 @@
 - 「實際／小跌／大跌／平盤／大漲」氣氛預覽，支援 `?scene=actual|down|crash|flat|up`。**只改變草、牛群與氣氛；報價、田地顏色與高度、榜單均維持原始資料。**
 - 全市場產業田地熱圖、漲幅／跌幅／成交量前 20 名，可按「顯示更多」查看前 50 名；ETF 焦點、產業等權平均、股票代碼與名稱搜尋。搜尋結果預設 30 檔，每次可再顯示 50 檔。手機田地圖預先展開六個產業，可展開全部。
 - 點選 3D 田地、熱圖、排行榜或搜尋列開啟個股明細，查看價量、開高低、漲跌停、估價標記與大盤比較。支援 `?q=2330` 深連結，選取以防抖方式更新網址，關閉時移除 `q`；可用 Esc、背景或關閉鈕離開，焦點會返回入口，手機為全螢幕面板。
-- 明細僅在開高低及現價齊全時顯示「今日價位區間示意（非分時圖）」，前收若存在則一併呈現；沒有分時曲線或合成報價。來源缺少個股時刻時明確標示，快照最新報價時間另列。
+- 個股盤中歷史有至少兩個有效點時，顯示「今日盤中走勢（依快照累積，約每 1–2 分鐘一點，非逐筆分時）」。不足時，開高低及現價齊全才顯示「今日價位區間示意（非分時圖）」，前收若存在則一併呈現；不合成報價。來源缺少個股時刻時明確標示，快照最新報價時間另列。
 - 標頭下方的異動焦點跑馬燈顯示最多 8 檔，依漲跌幅絕對值排序；雙向皆有資料時保留一檔反向焦點。滑鼠停留／鍵盤聚焦時停止，也可手動暫停；減少動態效果模式改為靜態清單。
 - 非盤中或盤後快照顯示「目前非盤中／收盤資料」與最後報價時間，資料過期時加強提示；初次載入各區有等待文字。
 - 點選產業表列會展開並捲動至對應熱圖分區，同時套用股票搜尋的產業篩選；可再疊加名稱、代碼、市場與漲跌條件。
 - 個股對標所屬市場的大盤，以百分點顯示「贏大盤／輸大盤」。產業表對標加權指數，混合日期資料不直接與當日大盤比較。
+
+## 盤中歷史、觀察與分享
+
+- `docs/data/history.json` 為緊湊 `v:1` JSON：記錄交易日期、來源 `quoteTime`、擷取 `generatedAt`、個股價格、兩大指數、產業等權平均與市場廣度。每次 `run-cycle.mjs` 擷取成功後原子寫入，兩輪都累積；最多保留 200 點，交易日期變更即重設，末筆報價時間與擷取時間完全相同時去重。缺價為 `null`，不補值。產業與指數卡亦提供小走勢圖；缺少歷史檔仍可正常看報價。
+- Actions 在 configure-pages 後以 SHA 固定的 `actions/cache` 還原 `docs/data/history.json`，key 為 `cow-history-${{ github.run_id }}`、前綴為 `cow-history-`；工作成功結束時自動保存，包括第 2 輪更新。cache 可能被清除，因此歷史不保證完整。首輪本機缺檔時另嘗試 `LIVE_HISTORY_URL`（預設 `https://malilion.github.io/cow-pasture/data/history.json`），15 秒逾時，驗證版本與日期後載入；失敗忽略，既有本機檔優先。
+- 歷史隨 Pages 公開發布，**`docs/data/` 已 gitignore，快照與歷史都不進 Git、不提交**。瀏覽器與快照同時以同源、`cache: 'no-store'` 讀取歷史，僅使用同交易日期資料。這是定時快照累積，非逐筆行情。
+- 「我的觀察名單」只在瀏覽器 `localStorage` 的 `cowPasture.watch.v1` 保存最多 40 個唯一有效代碼；無股數、成本或資產估值，不同步、不上傳。可由明細加入或移出，報價取自目前快照；清除網站儲存空間會移除名單。
+- 比較欄可輸入代碼或完整名稱，也可由個股明細「加入比較」。`?cmp=2330,2454` 可分享兩檔比較，與 `?q=` 並存；價格、漲跌幅、對標所屬大盤、成交量及各自縮放的盤中曲線同列，Esc 關閉比較。
+- 「分享今日牧場」開啟 1200×630 SVG 預覽，以開啟當下快照的日期、時間、指數、漲跌平家數與牧場指數填入；可下載 SVG、嘗試 canvas 轉 PNG 或系統分享文字與網址。不硬編行情，卡片明示延遲快照、非投資建議；離線 fixture 模式另標示歷史樣本。
+- 標頭「標誌」提供四款 256×256 插畫 PNG：`cute` 可愛乳牛、`fine` 精美乳牛插畫徽章、`mature` 成熟幾何牛頭、`lion` 柔和獅子徽章。SVG 保留為向量備份；`cowPasture.logo.v1` 僅保存樣式識別，預設可愛，同步切換品牌圖與 favicon。
+- Open Graph／Twitter 社群大圖使用 `https://malilion.github.io/cow-pasture/og.jpg`（1200×630，無即時行情數字）；`docs/og.svg` 保留為額外品牌插畫。
+- `/` 可聚焦搜尋（輸入欄與對話框內不攔截）；排行榜支援方向鍵及 Home／End。觀察名單、比較與標誌皆使用原生按鈕。省流量、記憶體 ≤4GB、核心 ≤4 或窄螢幕裝置使用像素比 1、最多 600 草葉、停用閒置自轉並省略花朵，保留 instancing。
+
+可手動累積本機歷史：
+
+```sh
+node scripts/append-history.mjs --snapshot docs/data/snapshot.json --history docs/data/history.json
+NODE_OPTIONS=--test-isolation=none node scripts/check.mjs
+```
 
 ## 資料來源與限制
 
@@ -117,6 +136,8 @@ npm start  # http://localhost:5173；PORT 可覆寫
 
 ```text
 scripts/lib/normalize.mjs    純解析、正規化與快照封裝
+scripts/lib/history.mjs      盤中歷史純函式、原子寫入與線上 seed
+scripts/append-history.mjs   追加歷史 CLI
 scripts/fetch-snapshot.mjs   OpenAPI／MIS 擷取與 quotes-only
 scripts/run-cycle.mjs        單輪 seed／擷取、首輪檢查與時間記錄
 scripts/lib/cycle-support.mjs 共用線上快照 seed 與 check runner
@@ -129,6 +150,8 @@ scripts/check.mjs            語法與 node:test
 
 docs/js/logic.js             可在 Node 載入的純行情／時間邏輯
 docs/js/display.js           格式化與 HTML 跳脫
+docs/js/personal.js          觀察名單、兩股比較、標誌與小走勢圖
+docs/js/share.js             快照分享卡、SVG／PNG 下載
 docs/js/detail.js            個股明細、深連結、防抖與焦點管理
 docs/js/app.js               介面、輪詢、事件委派
 docs/js/pasture.js           three.js 牧場、互動與資源回收
