@@ -1,0 +1,45 @@
+name: 更新牧場與部署 Pages
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'scripts/**'
+      - '.github/**'
+  workflow_dispatch:
+  schedule:
+    # 臺北週一至週五 09:00–13:50，每 10 分鐘。GitHub 排程可能延遲，例假日也會執行。
+    # 私有倉庫每交易日約 30 次 × 約 1 分鐘，約 650 分鐘/月；依實際執行時間計費。
+    - cron: '*/10 1-5 * * 1-5'
+    # 臺北 14:20，收盤後最後一次快照。
+    - cron: '20 6 * * 1-5'
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 擷取市場快照
+        run: node scripts/fetch-snapshot.mjs --out docs/data
+      - name: 檢查模組與測試
+        run: node scripts/check.mjs
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - name: 部署 Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

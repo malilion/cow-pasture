@@ -1,0 +1,14 @@
+{
+  "name": "cow-pasture",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "node scripts/check.mjs",
+    "test": "node scripts/check.mjs",
+    "snapshot": "node scripts/fetch-snapshot.mjs --out docs/data",
+    "snapshot:fixtures": "node scripts/fixture-snapshot.mjs --out docs/data",
+    "start": "node scripts/serve.mjs"
+  }
+}
