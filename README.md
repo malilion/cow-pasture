@@ -42,6 +42,8 @@
 
 2026-11-06 實測：MIS、TWSE/TPEx OpenAPI 回應未提供 `Access-Control-Allow-Origin`，無法從 GitHub Pages 直接跨站抓取。瀏覽器僅向同源 `data/snapshot.json` 取資料；無代理服務、API 金鑰或第三方行情套件。
 
+首頁透過 CSP meta 限制腳本與資料連線為同源，禁止外掛物件；樣式保留 inline 支援以相容現有介面，不允許 `unsafe-eval`。
+
 普通股與 ETF 依 `^(\d{4}|00\d{2,4}[A-Z]?)$` 過濾，排除權證、債券與 `01001T` 等不符格式商品；`00` 開頭標記 ETF。實際檔數以每次 OpenAPI 結果為準，不硬編預期市場總數。
 
 每個 job 首輪（含單次模式）都嘗試從 `LIVE_SNAPSHOT_URL`（預設 `https://malilion.github.io/cow-pasture/data/snapshot.json`）載入快照，成功後使用 `--quotes-only`；載入失敗則以 `Promise.allSettled` 並行擷取四個股票清單／產業來源，再查 MIS，不因 seed 失敗中止。後續輪次使用 `--quotes-only`，從前次快照重建股票與產業清單，只查 MIS，缺檔時自動回到完整擷取。快照另保留首輪真正的 EOD 欄位供後續缺漏回補，不把上輪盤中價當成盤後價。
