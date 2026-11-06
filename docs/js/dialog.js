@@ -5,12 +5,13 @@ function available(element) {
   if (!element || element.isConnected === false) return false;
   if (typeof element.matches === 'function') {
     try {
-      if (element.matches(':disabled')) return false;
-    } catch { /* mock environments may lack :disabled */ }
+      if (element.matches(':disabled, [hidden], [inert]')) return false;
+    } catch { /* mock environments may lack CSS selectors */ }
   }
+  // Ignore bogus closest() mocks that return the node for every selector.
   if (typeof element.closest === 'function') {
     const hidden = element.closest('[hidden], [inert]');
-    if (hidden) return false;
+    if (hidden && hidden !== element) return false;
   }
   if (typeof element.getClientRects === 'function' && element.getClientRects().length === 0) return false;
   return true;
@@ -56,13 +57,11 @@ export function createDialogFocus(dialog, { fallback = () => document.getElement
   dialog.addEventListener('close', () => {
     if (dialog.open) return;
     const target = returnTarget();
-    const openDialogs = typeof document.querySelectorAll === 'function'
-      ? [...document.querySelectorAll('dialog[open]')]
-      : [];
-    const activeModal = document.activeElement?.closest?.('dialog[open]') ?? openDialogs.at(-1);
-    if (activeModal && typeof activeModal.contains === 'function' && !activeModal.contains(target)) {
-      if (!activeModal.contains(document.activeElement)) activeModal.querySelector?.(focusableSelector)?.focus?.({ preventScroll: true });
-      return;
+    const active = document.activeElement;
+    // If focus already sits in a different open dialog, do not steal it.
+    if (active && typeof active.closest === 'function') {
+      const other = active.closest('dialog[open]');
+      if (other && other !== dialog) return;
     }
     if (available(target)) target.focus?.({ preventScroll: true });
   });

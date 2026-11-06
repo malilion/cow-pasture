@@ -15,8 +15,22 @@ test('明細在資料就緒後開啟深連結，防抖保留其他參數，鍵�
   const classes = new Set(), replacements = [];
   const document = { activeElement: null, body: { classList: { add: x => classes.add(x), remove: x => classes.delete(x) } } };
   class Button extends EventTarget {
-    constructor(key) { super(); this.dataset = key ? { stockKey: key } : {}; this.isConnected = true; }
-    closest() { return this.dataset.stockKey ? this : null; }
+    constructor(key) {
+      super();
+      this.dataset = key ? { stockKey: key } : {};
+      this.isConnected = true;
+      this.localName = 'button';
+      this.tabIndex = 0;
+    }
+    closest(selector = '') {
+      if (selector === 'dialog[open]') return null;
+      if (selector === '[id]') return null;
+      return this.dataset.stockKey ? this : null;
+    }
+    hasAttribute(name) { return name === 'data-stock-key' && Boolean(this.dataset.stockKey); }
+    getAttribute(name) { return name === 'data-stock-key' ? this.dataset.stockKey : null; }
+    matches() { return false; }
+    getClientRects() { return [{ x: 0, y: 0, width: 1, height: 1 }]; }
     focus() { document.activeElement = this; }
   }
   const x = new Button(), bottomClose = new Button(), origin = new Button('tse:2330'), refreshedOrigin = new Button('tse:2330');
