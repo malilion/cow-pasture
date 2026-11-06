@@ -6,14 +6,48 @@
 
 正式網站：**https://malilion.github.io/cow-pasture/** · [公開原始碼](https://github.com/malilion/cow-pasture)。
 
-## 畫面預留
+## 畫面
 
-目前執行環境限制瀏覽器啟動，尚未拍攝截圖；以下為預留路徑，沒有合成或假冒實機截圖。可在本機開啟 `?scene=crash`、`?scene=up`，分別以桌面及 375px 手機尺寸擷取。
+實機截圖（`shots/`，隨 repo 提供）。氣氛預覽可用 `?scene=crash`／`?scene=up` 重拍。
 
 | 場景 | 桌面 | 手機 |
 | --- | --- | --- |
-| 綠油油 | `shots/desktop-green.png` | `shots/mobile-green.png` |
-| 紅通通 | `shots/desktop-red.png` | `shots/mobile-red.png` |
+| 綠油油牧場 | [desktop-green](shots/desktop-green.png) | [mobile-green](shots/mobile-green.png) |
+| 紅通通氣氛 | [desktop-red](shots/desktop-red.png) | [mobile-red](shots/mobile-red.png) |
+| 個股明細（盤中走勢） | [desktop-detail](shots/desktop-detail.png) | [mobile-detail](shots/mobile-detail.png) |
+| 標誌選擇 | [desktop-logos](shots/desktop-logos.png) | [mobile-logos](shots/mobile-logos.png) |
+| 兩檔比較 | [desktop-compare](shots/desktop-compare.png) | — |
+| 分享今日牧場 | [desktop-share](shots/desktop-share.png) | — |
+
+![綠油油牧場（桌面）](shots/desktop-green.png)
+
+![個股明細與盤中走勢（桌面）](shots/desktop-detail.png)
+
+## 功能一覽
+
+- **大盤與廣度**：加權／櫃買指數、開高低、漲跌家數；指數卡附盤中小走勢圖（快照累積）。
+- **3D 牧場**：產業分區 InstancedMesh、草與牛、氣氛預覽 `?scene=`；無 WebGL2 時 2D 備援。
+- **熱圖／榜單／ETF／產業表**：熱圖可點開個股；榜單前 20／展開 50；產業等權平均＋小走勢。
+- **個股明細**：價量、漲跌停、估價標記、對標大盤；`?q=2330` 深連結；手機全螢幕面板。
+- **盤中走勢**：快照歷史約每 1–2 分鐘一點（非逐筆）；不足時顯示價位區間示意。
+- **觀察名單**：僅本機 `localStorage`，最多 40 碼，無股數／成本。
+- **兩檔比較**：`?cmp=2330,2454`，價量與各自縮放曲線。
+- **分享卡**：1200×630 SVG／PNG，明示延遲快照、非投資建議。
+- **標誌切換**：可愛／精美／成熟／獅子，同步 favicon。
+- **更新**：Actions 盤中約每 90–120 秒部署一輪；前端約 60 秒重抓同源快照。
+
+## 資安與供應鏈
+
+| 項目 | 狀態 |
+| --- | --- |
+| Content-Security-Policy | `default-src 'self'`；`script-src`／`connect-src` 同源；禁止 `object`／`unsafe-eval`；樣式允許 inline 以相容現有 UI |
+| HTML 跳脫 | 股票名稱等動態文字經 `display.js` 跳脫，不以未淨化字串寫入 HTML |
+| 行情資料 | `docs/data/` gitignore；快照與歷史**不進 Git**，只當 Pages artifact |
+| Secret scanning | 已開；**push protection** 已開 |
+| Dependabot | Actions 生態系每週檢查；security updates 已開 |
+| Actions 鎖定 | `checkout`／`setup-node`／`configure-pages`／`cache`／`upload-pages-artifact`／`deploy-pages` 皆 pin 至完整 commit SHA |
+| 依賴 | **零 npm 依賴**；three.js 以 vendor 隨附 |
+| 分支保護 | 未設（避免擋住自動部署推送） |
 
 ## 可以看什麼
 
@@ -61,7 +95,7 @@ NODE_OPTIONS=--test-isolation=none node scripts/check.mjs
 
 2026-11-06 實測：MIS、TWSE/TPEx OpenAPI 回應未提供 `Access-Control-Allow-Origin`，無法從 GitHub Pages 直接跨站抓取。瀏覽器僅向同源 `data/snapshot.json` 取資料；無代理服務、API 金鑰或第三方行情套件。
 
-首頁透過 CSP meta 限制腳本與資料連線為同源，禁止外掛物件；樣式保留 inline 支援以相容現有介面，不允許 `unsafe-eval`。
+首頁透過 CSP meta 限制腳本與資料連線為同源，禁止外掛物件；樣式保留 inline 支援以相容現有介面，不允許 `unsafe-eval`。更完整的資安對照見上方「資安與供應鏈」。
 
 普通股與 ETF 依 `^(\d{4}|00\d{2,4}[A-Z]?)$` 過濾，排除權證、債券與 `01001T` 等不符格式商品；`00` 開頭標記 ETF。實際檔數以每次 OpenAPI 結果為準，不硬編預期市場總數。
 
@@ -108,7 +142,7 @@ cron 本身涵蓋至 13:55，因此 13:35–13:55 啟動的 job 採**單次**快
 
 `concurrency.group: pages`、`cancel-in-progress: false` 讓前一個 job 完成再交接，避免工作同時部署。GitHub 預設只保留一個 pending run，新的排隊執行可能取代舊的 pending run；[官方 concurrency 說明](https://docs.github.com/en/actions/concepts/workflows-and-actions/concurrency)。第 1 輪擷取、檢查、上傳或部署失敗會停止後續步驟並讓 job 失敗；第 2 輪擷取、上傳與部署皆設 `continue-on-error: true`，晚發失敗仍保留第 1 輪 Pages，讓 job 正常結束。第 2 輪依前一步的 `outcome` 決定是否繼續，擷取失敗不會上傳或部署 seed／舊快照，上傳失敗不會嘗試部署。environment `github-pages` 的 URL 使用第一輪 `deployment.outputs.page_url`。
 
-workflow 使用 `actions/checkout@v4`、`actions/setup-node@v4`（Node 22）、`actions/configure-pages@v5`，再於每輪執行 [`actions/upload-pages-artifact@v3`](https://github.com/actions/upload-pages-artifact/tree/v3)（`path: docs`、保留 1 天）與 [`actions/deploy-pages@v4`](https://github.com/actions/deploy-pages/tree/v4)（`artifact_name` 對應該輪名稱）。權限維持 `contents: read`、`pages: write`、`id-token: write`。先前自訂 `POST /repos/.../pages/deployments` 在此 repo 使用 `GITHUB_TOKEN`、raw OIDC 與數字 artifact id 仍回 HTTP 404，因此改回曾成功的官方 actions，讓官方工具處理打包、OIDC 與部署輪詢。workflow 不再暫裝 `@actions/*` 套件，也不使用本機 `.github/actions/market-loop` 或自訂 Pages REST 部署；舊腳本僅保留供測試與參考，`package.json` 維持零依賴。
+workflow 以**完整 commit SHA** 鎖定 `actions/checkout`、`actions/setup-node`（Node 22）、`actions/configure-pages`、`actions/cache`，再於每輪執行 SHA 鎖定的 `actions/upload-pages-artifact`（`path: docs`、保留 1 天）與 `actions/deploy-pages`（`artifact_name` 對應該輪名稱）；YAML 註解標示對應 major／版本號以便升級。權限維持 `contents: read`、`pages: write`、`id-token: write`。先前自訂 `POST /repos/.../pages/deployments` 在此 repo 使用 `GITHUB_TOKEN`、raw OIDC 與數字 artifact id 仍回 HTTP 404，因此改回曾成功的官方 actions，讓官方工具處理打包、OIDC 與部署輪詢。workflow 不再暫裝 `@actions/*` 套件，也不使用本機 `.github/actions/market-loop` 或自訂 Pages REST 部署；舊腳本僅保留供測試與參考，`package.json` 維持零依賴。
 
 前端在臺北平日 09:00–14:30 約每 **60 秒**讀取同源快照，使用 `Date.now()` 查詢參數及 `cache: 'no-store'` 避免舊快取；其他時段每 10 分鐘，分頁隱藏時暫停。GitHub cron 可能排隊、延遲或漏跑，Pages 部署也需要時間；90–120 秒以上是部署間隔的概估，無法保證每次達成。MIS 本身也可能延遲，**非即時逐筆行情**，請同時看報價日期、時間與擷取時間。
 
