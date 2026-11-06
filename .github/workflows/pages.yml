@@ -24,7 +24,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 8
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -53,32 +53,23 @@ jobs:
       - name: 等待下一輪
         if: steps.mode.outputs.loop == 'true'
         run: sleep 15
+      # 最多兩輪以符合 job 預算；第二輪失敗仍保留第一輪 Pages，讓 job 正常結束。
+      # 依 outcome 串接，擷取失敗不發布舊快照，上傳失敗不嘗試部署。
       - name: 擷取第 2 輪（僅 MIS）
+        id: cycle2
         if: steps.mode.outputs.loop == 'true'
+        continue-on-error: true
         run: node scripts/run-cycle.mjs --cycle 2
       - uses: actions/upload-pages-artifact@v3
-        if: steps.mode.outputs.loop == 'true'
+        id: upload2
+        if: steps.mode.outputs.loop == 'true' && steps.cycle2.outcome == 'success'
+        continue-on-error: true
         with:
           path: docs
           name: github-pages-2
       - uses: actions/deploy-pages@v4
-        if: steps.mode.outputs.loop == 'true'
+        if: steps.mode.outputs.loop == 'true' && steps.upload2.outcome == 'success'
+        continue-on-error: true
         id: deployment2
         with:
           artifact_name: github-pages-2
-      - name: 等待下一輪
-        if: steps.mode.outputs.loop == 'true'
-        run: sleep 15
-      - name: 擷取第 3 輪（僅 MIS）
-        if: steps.mode.outputs.loop == 'true'
-        run: node scripts/run-cycle.mjs --cycle 3
-      - uses: actions/upload-pages-artifact@v3
-        if: steps.mode.outputs.loop == 'true'
-        with:
-          path: docs
-          name: github-pages-3
-      - uses: actions/deploy-pages@v4
-        if: steps.mode.outputs.loop == 'true'
-        id: deployment3
-        with:
-          artifact_name: github-pages-3
