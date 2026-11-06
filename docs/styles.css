@@ -1588,3 +1588,22 @@ tr[data-stock-key],tr[data-industry-target] { cursor: pointer }
   .compare-values dd { text-align: left; margin: 0 0 12px }
   .utility-dialog { padding: 16px }
 }
+
+.refresh-toast {
+  grid-column: 1 / -1;
+  margin: 0.35rem 0 0;
+  padding: 0.45rem 0.7rem;
+  border-radius: 999px;
+  background: #20321f;
+  color: #f4f7ef;
+  font-size: 0.85rem;
+  font-weight: 650;
+  width: fit-content;
+  max-width: 100%;
+}
+.refresh-toast[hidden] { display: none !important }
+.refresh-toast.is-same { background: #4a5560 }
+#refresh[disabled] { opacity: 0.55; cursor: wait }
+@media (max-width: 720px) {
+  .refresh-toast { border-radius: 12px; }
+}

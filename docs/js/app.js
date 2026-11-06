@@ -15,7 +15,24 @@ const scenes = new Set(['actual', 'down', 'crash', 'flat', 'up']);
 const sceneParam = new URL(location.href).searchParams.get('scene');
 state.scene = scenes.has(sceneParam) ? sceneParam : 'actual';
 for (const input of document.querySelectorAll('input[name=scene]')) input.checked = input.value === state.scene;
-let timer, pending = false, aborter, stopped = false;
+let timer, pending = false, aborter, stopped = false, toastTimer;
+function snapshotStamp(snapshot) {
+  if (!snapshot) return '';
+  return `${snapshot.marketDate ?? ''}|${snapshot.quoteTime ?? ''}|${snapshot.generatedAt ?? ''}`;
+}
+function taipeiClock(date = new Date()) {
+  return date.toLocaleTimeString('zh-Hant-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'Asia/Taipei' });
+}
+function showRefreshToast(message, same = false) {
+  const el = $('refresh-toast');
+  if (!el) return;
+  el.hidden = false;
+  el.textContent = message;
+  el.classList.toggle('is-same', same);
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.hidden = true; }, 4500);
+}
+
 let pastureNear = false, fallback = false;
 const fallbackKeys = () => state.snapshot?.meta?.fallbackCount ?? 0;
 
@@ -179,9 +196,18 @@ function schedule() {
   clearTimeout(timer);
   if (!document.hidden && !stopped) timer = setTimeout(fetchData, refreshDelay(new Date()));
 }
-async function fetchData() {
-  if (pending || document.hidden || stopped) return;
-  pending = true; $('refresh').disabled = true; $('retry').disabled = true; clearTimeout(timer);
+async function fetchData(options = {}) {
+  const manual = options === true || options?.manual === true;
+  if (pending || stopped) return;
+  if (!manual && document.hidden) return;
+  pending = true;
+  const refreshBtn = $('refresh');
+  const prevLabel = refreshBtn.textContent;
+  refreshBtn.disabled = true;
+  $('retry').disabled = true;
+  if (manual) refreshBtn.textContent = '更新中…';
+  clearTimeout(timer);
+  const before = snapshotStamp(state.snapshot);
   aborter = new AbortController();
   const timeout = setTimeout(() => aborter.abort(), 20_000);
   try {
@@ -196,17 +222,27 @@ async function fetchData() {
     if (!snapshot.indices || !snapshot.indices.taiex || !snapshot.indices.otc || !stocks.length) throw new Error('快照沒有可用資料');
     state.history = historyData?.v === 1 && historyData.marketDate === snapshot.marketDate ? historyData : null;
     state.snapshot = snapshot; state.stocks = stocks; $('error-banner').hidden = true; render();
+    if (manual) {
+      const after = snapshotStamp(snapshot);
+      const latest = snapshot.quoteTime || snapshot.generatedAt?.slice(11, 19) || taipeiClock();
+      if (before && before === after) showRefreshToast(`資料尚未更新（最新 ${latest}）`, true);
+      else showRefreshToast(`已更新 ${taipeiClock()}`, false);
+    }
   } catch (error) {
     if (!stopped) {
       $('error-message').textContent = `市場快照暫時無法取得${state.snapshot ? '，保留上次資料' : '，請確認已產生 snapshot.json'}（${error.name === 'AbortError' ? '連線逾時' : error.message}）。`;
       $('error-banner').hidden = false;
       if (!state.snapshot) $('freshness').textContent = '尚無資料 · 可點選重試';
+      if (manual) showRefreshToast('更新失敗，請稍後再試', true);
     }
   } finally {
-    clearTimeout(timeout); pending = false; $('refresh').disabled = false; $('retry').disabled = false; schedule();
+    clearTimeout(timeout); pending = false;
+    refreshBtn.disabled = false; refreshBtn.textContent = prevLabel || '↻ 更新資料';
+    $('retry').disabled = false; schedule();
   }
 }
-$('refresh').addEventListener('click', fetchData); $('retry').addEventListener('click', fetchData);
+$('refresh').addEventListener('click', () => { void fetchData({ manual: true }); });
+$('retry').addEventListener('click', () => { void fetchData({ manual: true }); });
 document.addEventListener('visibilitychange', () => { clearTimeout(timer); if (!document.hidden) { renderFreshness(); fetchData(); } });
 const freshnessTimer = setInterval(() => { if (!document.hidden) renderFreshness(); }, 60_000);
 const observer = new IntersectionObserver(entries => { pastureNear = entries[0].isIntersecting; if (pastureNear) loadPasture(); }, { rootMargin: '250px' });
