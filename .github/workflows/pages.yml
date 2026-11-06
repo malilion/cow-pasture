@@ -37,7 +37,7 @@ jobs:
       - name: 暫時安裝 runner 部署工具（不寫入套件清單與 lockfile）
         run: npm install --no-save --no-package-lock @actions/artifact@2.3.2 @actions/core@1.11.1 @actions/github@6.0.0
       # JavaScript action 繼承 runner 的 ACTIONS_RUNTIME_* / ACTIONS_RESULTS_URL、OIDC
-      # 與 GITHUB_REPOSITORY / GITHUB_RUN_ID / GITHUB_SHA 等環境，執行 node scripts/market-loop.mjs。
+      # 與 GITHUB_REPOSITORY / GITHUB_RUN_ID / GITHUB_SHA 等環境，在同一程序執行市場循環。
       - name: 循環擷取、檢查與部署 Pages
         id: deployment
         uses: ./.github/actions/market-loop

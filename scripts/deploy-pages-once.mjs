@@ -18,8 +18,8 @@ export async function archiveDocs(docsDir, archive) {
     '--exclude=.git', '--exclude=.github', '-cf', archive, '.']);
 }
 async function actionsClients(env) {
-  for (const key of ['GITHUB_TOKEN', 'GITHUB_REPOSITORY', 'GITHUB_RUN_ID', 'ACTIONS_ID_TOKEN_REQUEST_URL',
-    'ACTIONS_ID_TOKEN_REQUEST_TOKEN', 'ACTIONS_RUNTIME_TOKEN', 'ACTIONS_RESULTS_URL']) {
+  for (const key of ['GITHUB_TOKEN', 'GITHUB_REPOSITORY', 'GITHUB_RUN_ID',
+    'ACTIONS_RUNTIME_TOKEN', 'ACTIONS_RESULTS_URL']) {
     if (!env[key]) throw new Error(`缺少 ${key}；請從 workflow 的本機 JavaScript action 執行。`);
   }
   // Runner-only packages: keep package.json dependency-free and import lazily for local checks.
@@ -29,14 +29,56 @@ async function actionsClients(env) {
   return { artifact: new DefaultArtifactClient(), core, octokit: github.getOctokit(env.GITHUB_TOKEN, { request: { timeout: 15_000 } }) };
 }
 
+export async function getPagesOIDCToken({ owner, env = process.env, core, fetcher = fetch, timeoutMs = 15_000 }) {
+  const audience = `https://github.com/${owner}`;
+  let token;
+  if (env.ACTIONS_ID_TOKEN_REQUEST_URL && env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
+    // Use the runner endpoint directly so this also works outside the toolkit's process.
+    const url = new URL(env.ACTIONS_ID_TOKEN_REQUEST_URL);
+    url.searchParams.set('audience', audience);
+    let response;
+    try {
+      response = await fetcher(url.href, { method: 'GET',
+        headers: { Authorization: `Bearer ${env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}` },
+        signal: AbortSignal.timeout(timeoutMs) });
+    } catch {
+      throw new Error('Pages OIDC token 請求失敗（網路錯誤或逾時）');
+    }
+    if (!response.ok) throw new Error(`Pages OIDC token 請求失敗（HTTP ${response.status}）`);
+    try { token = (await response.json())?.value; }
+    catch { throw new Error('Pages OIDC token 回應不是有效 JSON'); }
+  } else {
+    // Same owner audience as deploy-pages@v4's default runner-issued token.
+    try { token = await core.getIDToken(audience); }
+    catch { throw new Error('Pages OIDC token 取得失敗；請確認 workflow 有 id-token: write 權限'); }
+  }
+  if (typeof token !== 'string' || !token.trim()) throw new Error('Pages OIDC token 為空；未建立部署');
+  return token;
+}
+
+function redactedResponseData(data, secrets) {
+  if (typeof data === 'string') {
+    try { data = JSON.parse(data); } catch { /* Non-JSON response body. */ }
+  }
+  try {
+    return JSON.stringify(data, (key, value) => {
+      if (/token|authorization|cookie|secret/i.test(key)) return '[REDACTED]';
+      if (typeof value === 'string') {
+        for (const secret of secrets) if (secret) value = value.replaceAll(secret, '[REDACTED]');
+      }
+      return value;
+    }) ?? 'null';
+  } catch { return '"[無法序列化回應]"'; }
+}
+
 export async function deployPages({ docsDir = 'docs', cycle = 1, timeoutMs = 90_000, env = process.env,
-  clients, now = Date.now, pause = sleep, log = console.log, pack = archiveDocs } = {}) {
+  clients, fetcher = fetch, now = Date.now, pause = sleep, log = console.log, pack = archiveDocs } = {}) {
   const deadline = now() + timeoutMs;
   const { artifact, core, octokit } = clients ?? await actionsClients(env);
   const [owner, repo] = (env.GITHUB_REPOSITORY ?? '').split('/');
   if (!owner || !repo || !env.GITHUB_RUN_ID) throw new Error('缺少有效的 GITHUB_REPOSITORY 或 GITHUB_RUN_ID');
   const temp = await mkdtemp(join(tmpdir(), 'cow-pages-'));
-  let deploymentId, pending = false;
+  let deploymentId, oidcToken, pending = false;
   const request = async (route, payload = {}) => {
     try {
       return await octokit.request(route, { owner, repo,
@@ -45,6 +87,9 @@ export async function deployPages({ docsDir = 'docs', cycle = 1, timeoutMs = 90_
       const headers = error.response?.headers ?? {};
       const limited = error.status === 429 || headers['x-ratelimit-remaining'] === '0' || /rate limit/i.test(error.message);
       log(limited ? `GitHub API 速率限制：HTTP ${error.status}，重設 ${headers['x-ratelimit-reset'] ?? '未知'}，稍候 ${headers['retry-after'] ?? '未知'} 秒。` : `GitHub Pages API 失敗：HTTP ${error.status ?? '未知'}。`);
+      const secrets = [oidcToken, env.GITHUB_TOKEN, env.ACTIONS_ID_TOKEN_REQUEST_TOKEN, env.ACTIONS_RUNTIME_TOKEN];
+      log(`GitHub Pages API response.data: ${redactedResponseData(error.response?.data, secrets)}`);
+      log(`GitHub Pages API x-github-request-id: ${headers['x-github-request-id'] ?? '未知'}`);
       // Do not log request payloads or raw errors: the create payload contains the OIDC token.
       throw new Error(limited ? 'GitHub API 速率限制' : `GitHub Pages API 請求失敗（${error.status ?? '網路錯誤'}）`);
     }
@@ -54,13 +99,14 @@ export async function deployPages({ docsDir = 'docs', cycle = 1, timeoutMs = 90_
     await pack(resolve(docsDir), archive);
     const name = `github-pages-${env.GITHUB_RUN_ID}-${cycle}-${randomUUID()}`;
     const uploaded = await artifact.uploadArtifact(name, [archive], temp, { retentionDays: 1, compressionLevel: 6 });
-    if (!uploaded.id) throw new Error('Artifact 上傳未回傳 id');
+    const artifactId = Number(uploaded.id);
+    if (!Number.isSafeInteger(artifactId) || artifactId <= 0) throw new Error('Artifact 上傳未回傳有效的數字 id');
     // Mirrors actions/deploy-pages@v4: https://github.com/actions/deploy-pages/blob/v4/src/internal/api-client.js
-    // Its getIDToken() uses the default audience (https://github.com/<owner>).
-    const oidcToken = await core.getIDToken();
+    oidcToken = await getPagesOIDCToken({ owner, env, core, fetcher,
+      timeoutMs: Math.max(1, Math.min(15_000, deadline - now())) });
     if (now() >= deadline) throw new Error('Pages 部署預算已耗盡，未建立部署');
     const { data } = await request('POST /repos/{owner}/{repo}/pages/deployments', {
-      artifact_id: uploaded.id, pages_build_version: `${env.GITHUB_RUN_ID}-${env.GITHUB_RUN_ATTEMPT ?? '1'}-${cycle}`, oidc_token: oidcToken,
+      artifact_id: artifactId, pages_build_version: `${env.GITHUB_RUN_ID}-${env.GITHUB_RUN_ATTEMPT ?? '1'}-${cycle}`, oidc_token: oidcToken,
     });
     deploymentId = data.id || data.status_url?.split('/').pop();
     if (!deploymentId) throw new Error('Pages 建立部署未回傳 deployment id');
@@ -75,7 +121,7 @@ export async function deployPages({ docsDir = 'docs', cycle = 1, timeoutMs = 90_
         pending = false;
         core.setOutput('page_url', pageUrl ?? '');
         log(`Pages 部署 ${deploymentId} 成功：${pageUrl ?? ''}`);
-        return { id: deploymentId, pageUrl, artifactId: uploaded.id };
+        return { id: deploymentId, pageUrl, artifactId };
       }
       if (finalErrors.has(status.status)) { pending = false; throw new Error(`Pages 部署 ${deploymentId} 失敗：${status.status}`); }
       log(`Pages 部署 ${deploymentId}：${status.status}`);
