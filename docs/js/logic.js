@@ -104,6 +104,10 @@ export function isMarketHours(now = new Date(), until = 14 * 60 + 30) {
   return !['Sat', 'Sun'].includes(p.weekday) && minutes >= 9 * 60 && minutes < until;
 }
 export const refreshDelay = now => isMarketHours(now) ? 60_000 : 600_000;
+export function snapshotStamp(snapshot) {
+  if (!snapshot) return '';
+  return `${snapshot.marketDate ?? ''}|${snapshot.quoteTime ?? ''}|${snapshot.generatedAt ?? ''}`;
+}
 export function freshness(snapshot, now = new Date()) {
   const elapsed = now.valueOf() - Date.parse(snapshot.generatedAt);
   const age = Number.isFinite(elapsed) ? Math.max(0, Math.floor(elapsed / 60_000)) : null;

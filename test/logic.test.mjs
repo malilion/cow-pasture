@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { breadth, changePct, decodeSnapshot, filterStocks, freshness, industryAggregates, isMarketHours, mood, pickStock, rankings, refreshDelay, sparkPoints, topMovers, vsIndex } from '../docs/js/logic.js';
+import { breadth, changePct, decodeSnapshot, filterStocks, freshness, industryAggregates, isMarketHours, mood, pickStock, rankings, refreshDelay, snapshotStamp, sparkPoints, topMovers, vsIndex } from '../docs/js/logic.js';
 import { detailMarkup } from '../docs/js/detail.js';
 import { createSnapshot, industryMap, normalizeEod, parseMis } from '../scripts/lib/normalize.mjs';
 import { escapeHtml, format, formatPrice, formatVolume, stockDetail, badges, pctText, tileColor, vsText } from '../docs/js/display.js';
@@ -88,6 +88,21 @@ test('新鮮度區分擷取時間與行情日期、延遲、盤後模式', () =>
   assert.equal(freshness(snapshot, new Date('2026-11-07T01:51:01Z')).stale, true);
   assert.equal(freshness({ ...snapshot, generatedAt: 'invalid' }).age, null);
   assert.equal(freshness(snapshot, new Date('2026-11-06T01:40:00Z')).age, 0);
+});
+test('手動更新戳記比較行情日期、報價與產生時間；首次載入及缺值穩定', () => {
+  const input = Object.freeze({ marketDate: '2026-11-06', quoteTime: '09:40:10', generatedAt: '2026-11-06T01:41:01Z' });
+  const before = snapshotStamp(input);
+  assert.equal(snapshotStamp(null), ''); assert.equal(snapshotStamp(undefined), '');
+  assert.notEqual(snapshotStamp(null), before, '首次成功載入不視為相同快照');
+  assert.equal(snapshotStamp({ ...input }), before, '內容相同的新物件仍是相同快照');
+  assert.equal(snapshotStamp({ ...input, meta: { fixture: true } }), before, '非時間欄位不影響戳記');
+  for (const [field, value] of [['marketDate', '2026-11-09'], ['quoteTime', '09:41:00'], ['generatedAt', '2026-11-06T01:42:01Z']]) {
+    assert.notEqual(snapshotStamp({ ...input, [field]: value }), before, field);
+  }
+  assert.equal(snapshotStamp({}), '||');
+  assert.equal(snapshotStamp({ marketDate: null, quoteTime: null, generatedAt: null }), snapshotStamp({}));
+  assert.equal(snapshotStamp({ marketDate: input.marketDate }), '2026-11-06||');
+  assert.equal(snapshotStamp(input), before, '比較不修改原始資料');
 });
 test('格式化保留缺值、紅綠語意與跳脫來源名稱', () => {
   assert.equal(format(null), '—'); assert.equal(pctText(-1), '−1.00%');

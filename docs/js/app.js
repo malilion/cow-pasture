@@ -1,12 +1,14 @@
-import { breadth, changePct, decodeSnapshot, filterStocks, freshness, industryAggregates, historySeries, sectorHistory, isMarketHours, mood, pickStock, rankings, refreshDelay, topMovers } from './logic.js';
+import { breadth, changePct, decodeSnapshot, freshness, industryAggregates, historySeries, sectorHistory, isMarketHours, mood, pickStock, rankings, refreshDelay, snapshotStamp, topMovers } from './logic.js';
 import { badges, escapeHtml as esc, format, formatPrice, formatVolume, pctText, signed, tileColor, tone, vsText } from './display.js';
 import { createPersonal, sparkMarkup } from './personal.js';
 import { createShare } from './share.js';
 import { createStockPanel } from './detail.js';
 import { createKeyboardHelp } from './keyboard.js';
+import { createSearch } from './search.js';
 
 const $ = id => document.getElementById(id);
-const state = { snapshot: null, history: null, stocks: [], scene: 'actual', rank: 'up', rankLimit: 20, limit: 30, pasture: null, loadingPasture: false, industriesExpanded: false, industryOpen: new Map() };
+const state = { snapshot: null, history: null, stocks: [], scene: 'actual', rank: 'up', rankLimit: 20, pasture: null, loadingPasture: false, industriesExpanded: false, industryOpen: new Map() };
+const searchView = createSearch({ getStocks: () => state.stocks });
 const stockPanel = createStockPanel({ dialog: $('stock-panel'), getStocks: () => state.stocks, getSnapshot: () => state.snapshot, getHistory: () => state.history,
   isWatched: code => personal.isWatched(code), onWatch: code => personal.toggle(code), onCompare: code => personal.addCompare(code) });
 const personal = createPersonal({ getStocks: () => state.stocks, getHistory: () => state.history, openStock: (key, trigger) => stockPanel.open(key, trigger) });
@@ -18,10 +20,6 @@ const sceneParam = new URL(location.href).searchParams.get('scene');
 state.scene = scenes.has(sceneParam) ? sceneParam : 'actual';
 for (const input of document.querySelectorAll('input[name=scene]')) input.checked = input.value === state.scene;
 let timer, pending = false, aborter, stopped = false, toastTimer;
-function snapshotStamp(snapshot) {
-  if (!snapshot) return '';
-  return `${snapshot.marketDate ?? ''}|${snapshot.quoteTime ?? ''}|${snapshot.generatedAt ?? ''}`;
-}
 function taipeiClock(date = new Date()) {
   return date.toLocaleTimeString('zh-Hant-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'Asia/Taipei' });
 }
@@ -126,22 +124,6 @@ function renderIndustries() {
   $('search-industry').innerHTML = '<option value="all">所有產業</option>' + [...new Set(state.stocks.map(s => s.ind))].sort((a, b) => a.localeCompare(b, 'zh-Hant')).map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join('');
   $('search-industry').value = [...$('search-industry').options].some(o => o.value === selected) ? selected : 'all';
 }
-function renderSearch(reset = false) {
-  if (reset) state.limit = 30;
-  const rows = filterStocks(state.stocks, { query: $('query').value, market: $('search-market').value, direction: $('search-direction').value, industry: $('search-industry').value });
-  $('search-count').textContent = `${format(rows.length, 0)} 檔結果 · 已顯示 ${Math.min(rows.length, state.limit)}`;
-  const fragment = document.createDocumentFragment();
-  for (const s of rows.slice(0, state.limit)) {
-    const tr = document.createElement('tr');
-    tr.dataset.stockKey = s.key;
-    tr.innerHTML = `<td class="stock-name"><button type="button" class="row-link" data-stock-key="${esc(s.key)}">${esc(s.code)} ${esc(s.name)}</button>${badges(s)}</td><td>${s.mkt === 'otc' ? '上櫃' : '上市'} / ${esc(s.ind)}</td><td>${formatPrice(s.price)}${s.price === null ? ` <small>未成交 · 前收 ${formatPrice(s.prev)}</small>` : ''}</td><td class="${tone(s.pct)}">${pctText(s.pct)}</td><td>${formatVolume(s.vol)}</td><td class="${tone(s.vs)}">${vsText(s.vs)}</td>`;
-    fragment.append(tr);
-  }
-  $('search-rows').replaceChildren(fragment);
-  $('search-empty').hidden = rows.length > 0;
-  $('search-results').hidden = rows.length === 0;
-  $('show-more').hidden = rows.length <= state.limit;
-}
 function getMood() {
   return mood(state.stocks, changePct(state.snapshot?.indices.taiex?.price, state.snapshot?.indices.taiex?.prev), state.scene);
 }
@@ -183,7 +165,7 @@ async function loadPasture() {
   finally { state.loadingPasture = false; }
 }
 function render() {
-  renderFreshness(); renderIndices(); renderBreadth(); renderHeatmap(); renderRankings(); renderEtf(); renderIndustries(); renderSearch(); renderMood(); renderTicker(); stockPanel.refresh(); personal.refresh(); $('share-market').disabled = false;
+  renderFreshness(); renderIndices(); renderBreadth(); renderHeatmap(); renderRankings(); renderEtf(); renderIndustries(); searchView.render(); renderMood(); renderTicker(); stockPanel.refresh(); personal.refresh(); $('share-market').disabled = false;
   const notes = [], meta = state.snapshot.meta ?? {};
   if (meta.fixture) notes.push('歷史樣本模式：僅顯示隨附的真實 API fixtures，非全市場、非今日報價。');
   if (meta.incompleteUniverse?.length) notes.push(`資料範圍不完整：${meta.incompleteUniverse.join('、')}。`);
@@ -272,16 +254,6 @@ $('ranking-tabs').addEventListener('keydown', event => {
   event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
   selectRank(tabs[next]); tabs[next].focus();
 });
-let searchTimer;
-$('search-form').addEventListener('submit', event => event.preventDefault());
-$('query').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => renderSearch(true), 180); });
-for (const id of ['search-market', 'search-direction', 'search-industry']) $(id).addEventListener('change', () => renderSearch(true));
-$('clear-search').addEventListener('click', () => {
-  clearTimeout(searchTimer);
-  $('query').value = '';
-  for (const id of ['search-market', 'search-direction', 'search-industry']) $(id).value = 'all';
-  renderSearch(true); $('query').focus({ preventScroll: true });
-});
 const onHeatmapSize = () => { if (state.snapshot) renderHeatmap(); };
 compactHeatmap.addEventListener('change', onHeatmapSize);
 $('expand-industries').addEventListener('click', () => {
@@ -289,7 +261,6 @@ $('expand-industries').addEventListener('click', () => {
   for (const group of $('heatmap-grid').children) { group.open = true; state.industryOpen.set(group.dataset.industry, true); }
   $('expand-industries').hidden = true;
 });
-$('show-more').addEventListener('click', () => { state.limit += 50; renderSearch(); });
 function showHeatDetail(target) {
   const tile = target.closest('[data-key]'); if (!tile) return;
   const stock = pickStock(state.stocks, tile.dataset.key); if (!stock) return;
@@ -313,9 +284,7 @@ document.addEventListener('click', event => {
   if (tile) stockPanel.open(tile.dataset.key, tile);
   const industry = event.target.closest('[data-industry-target]')?.dataset.industryTarget;
   if (!industry) return;
-  clearTimeout(searchTimer);
-  $('query').value = ''; $('search-market').value = 'all'; $('search-direction').value = 'all';
-  $('search-industry').value = industry; renderSearch(true);
+  searchView.reset({ industry });
   const group = [...$('heatmap-grid').children].find(el => el.dataset.industry === industry);
   if (group) {
     group.open = true; state.industryOpen.set(industry, true);
@@ -335,7 +304,7 @@ const tickerObserver = new ResizeObserver(entries => {
   $('ticker-track').style.setProperty('--ticker-width', `${entries[0].contentRect.width}px`);
 });
 tickerObserver.observe($('ticker-viewport'));
-window.addEventListener('pagehide', event => { if (!event.persisted) { stopped = true; clearTimeout(timer); clearTimeout(searchTimer); stockPanel.dispose(); tickerObserver.disconnect(); clearInterval(freshnessTimer); aborter?.abort(); observer.disconnect(); compactHeatmap.removeEventListener('change', onHeatmapSize); state.pasture?.dispose(); } });
+window.addEventListener('pagehide', event => { if (!event.persisted) { stopped = true; clearTimeout(timer); clearTimeout(toastTimer); searchView.dispose(); stockPanel.dispose(); tickerObserver.disconnect(); clearInterval(freshnessTimer); aborter?.abort(); observer.disconnect(); compactHeatmap.removeEventListener('change', onHeatmapSize); state.pasture?.dispose(); } });
 fetchData();
 
 for (const dialog of document.querySelectorAll('.utility-dialog:not(#keyboard-help)')) {

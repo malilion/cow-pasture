@@ -1606,14 +1606,19 @@ tr[data-stock-key],tr[data-industry-target] { cursor: pointer }
 .search-empty button { border: 1px solid var(--line); border-radius: 10px; padding: 10px 16px; background: var(--card); color: var(--ink) }
 .search-empty[hidden], #search-results[hidden] { display: none }
 .site-header #keyboard-button { font: inherit; white-space: nowrap }
-.keyboard-help { width: min(640px,94vw) }
-.keyboard-shortcuts { display: grid; gap: 16px }
-.keyboard-shortcuts > div { display: grid; grid-template-columns: minmax(0,170px) minmax(0,1fr); gap: 16px }
-.keyboard-shortcuts dt, .keyboard-shortcuts dd { margin: 0; overflow-wrap: anywhere }
-.keyboard-shortcuts code { display: inline-block; border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; background: var(--paper); font-size: .85em }
+.keyboard-help { width: min(680px,94vw); overscroll-behavior: contain; scrollbar-gutter: stable }
+.keyboard-help .detail-header { align-items: center }
+.keyboard-help [data-close-dialog] { flex: 0 0 44px; min-height: 44px; padding: 6px; font-size: 24px; line-height: 1 }
+.keyboard-help code { overflow-wrap: anywhere }
+.keyboard-shortcuts { display: grid; margin-block: 20px; border-top: 1px solid var(--line) }
+.keyboard-shortcuts > div { display: grid; grid-template-columns: minmax(0,170px) minmax(0,1fr); align-items: start; gap: 20px; padding-block: 14px; border-bottom: 1px solid var(--line) }
+.keyboard-shortcuts dt, .keyboard-shortcuts dd { min-width: 0; margin: 0; overflow-wrap: anywhere }
+.keyboard-shortcuts dd { line-height: 1.75 }
+.keyboard-shortcuts kbd, .keyboard-shortcuts code { display: inline-block; max-width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 3px 7px; background: var(--paper); color: var(--ink); font-family: ui-monospace,monospace; font-size: .85em; line-height: 1.6 }
+.keyboard-shortcuts kbd { box-shadow: 0 2px 0 var(--line) }
 body:has(dialog[open]) { overflow: hidden }
 @media (max-width: 600px) {
-  .keyboard-shortcuts > div { grid-template-columns: 1fr; gap: 6px }
+  .keyboard-shortcuts > div { grid-template-columns: 1fr; gap: 8px; padding-block: 12px }
 }
 @media (max-width: 720px) {
   .refresh-toast { border-radius: 12px; }

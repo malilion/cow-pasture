@@ -10,3 +10,5 @@ import './deploy.test.mjs';
 import './cycle.test.mjs';
 import './history.test.mjs';
 import './personal.test.mjs';
+import './keyboard.test.mjs';
+import './search.test.mjs';
