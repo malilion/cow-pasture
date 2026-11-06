@@ -3,6 +3,7 @@ import { badges, escapeHtml as esc, format, formatPrice, formatVolume, pctText, 
 import { createPersonal, sparkMarkup } from './personal.js';
 import { createShare } from './share.js';
 import { createStockPanel } from './detail.js';
+import { createKeyboardHelp } from './keyboard.js';
 
 const $ = id => document.getElementById(id);
 const state = { snapshot: null, history: null, stocks: [], scene: 'actual', rank: 'up', rankLimit: 20, limit: 30, pasture: null, loadingPasture: false, industriesExpanded: false, industryOpen: new Map() };
@@ -10,6 +11,7 @@ const stockPanel = createStockPanel({ dialog: $('stock-panel'), getStocks: () =>
   isWatched: code => personal.isWatched(code), onWatch: code => personal.toggle(code), onCompare: code => personal.addCompare(code) });
 const personal = createPersonal({ getStocks: () => state.stocks, getHistory: () => state.history, openStock: (key, trigger) => stockPanel.open(key, trigger) });
 createShare({ getSnapshot: () => state.snapshot, getStocks: () => state.stocks });
+createKeyboardHelp({ dialog: $('keyboard-help'), button: $('keyboard-button'), search: $('query') });
 const compactHeatmap = matchMedia('(max-width: 600px)');
 const scenes = new Set(['actual', 'down', 'crash', 'flat', 'up']);
 const sceneParam = new URL(location.href).searchParams.get('scene');
@@ -135,8 +137,9 @@ function renderSearch(reset = false) {
     tr.innerHTML = `<td class="stock-name"><button type="button" class="row-link" data-stock-key="${esc(s.key)}">${esc(s.code)} ${esc(s.name)}</button>${badges(s)}</td><td>${s.mkt === 'otc' ? '上櫃' : '上市'} / ${esc(s.ind)}</td><td>${formatPrice(s.price)}${s.price === null ? ` <small>未成交 · 前收 ${formatPrice(s.prev)}</small>` : ''}</td><td class="${tone(s.pct)}">${pctText(s.pct)}</td><td>${formatVolume(s.vol)}</td><td class="${tone(s.vs)}">${vsText(s.vs)}</td>`;
     fragment.append(tr);
   }
-  if (!rows.length) { const tr = document.createElement('tr'); tr.innerHTML = '<td colspan="6" class="empty">找不到這塊田地，試試別的名稱或代碼。</td>'; fragment.append(tr); }
   $('search-rows').replaceChildren(fragment);
+  $('search-empty').hidden = rows.length > 0;
+  $('search-results').hidden = rows.length === 0;
   $('show-more').hidden = rows.length <= state.limit;
 }
 function getMood() {
@@ -273,6 +276,12 @@ let searchTimer;
 $('search-form').addEventListener('submit', event => event.preventDefault());
 $('query').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => renderSearch(true), 180); });
 for (const id of ['search-market', 'search-direction', 'search-industry']) $(id).addEventListener('change', () => renderSearch(true));
+$('clear-search').addEventListener('click', () => {
+  clearTimeout(searchTimer);
+  $('query').value = '';
+  for (const id of ['search-market', 'search-direction', 'search-industry']) $(id).value = 'all';
+  renderSearch(true); $('query').focus({ preventScroll: true });
+});
 const onHeatmapSize = () => { if (state.snapshot) renderHeatmap(); };
 compactHeatmap.addEventListener('change', onHeatmapSize);
 $('expand-industries').addEventListener('click', () => {
@@ -329,15 +338,9 @@ tickerObserver.observe($('ticker-viewport'));
 window.addEventListener('pagehide', event => { if (!event.persisted) { stopped = true; clearTimeout(timer); clearTimeout(searchTimer); stockPanel.dispose(); tickerObserver.disconnect(); clearInterval(freshnessTimer); aborter?.abort(); observer.disconnect(); compactHeatmap.removeEventListener('change', onHeatmapSize); state.pasture?.dispose(); } });
 fetchData();
 
-for (const dialog of document.querySelectorAll('.utility-dialog')) {
+for (const dialog of document.querySelectorAll('.utility-dialog:not(#keyboard-help)')) {
   dialog.querySelector('[data-close-dialog]').addEventListener('click', () => dialog.close());
 }
-document.addEventListener('keydown', event => {
-  if (event.key === '/' && !event.ctrlKey && !event.metaKey && !event.altKey &&
-      !event.target.closest('input, textarea, select, dialog, [contenteditable="true"]') && !document.querySelector('dialog[open]')) {
-    event.preventDefault(); $('query').focus();
-  }
-});
 $('ranking-list').addEventListener('keydown', event => {
   if (!['Home', 'End', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
   const buttons = [...$('ranking-list').querySelectorAll('button')], index = buttons.indexOf(document.activeElement);

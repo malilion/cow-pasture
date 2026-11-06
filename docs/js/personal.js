@@ -1,5 +1,6 @@
 import { formatCompare, historySeries, linePoints, loadWatch, logoId, parseCompare, pickStock, toggleWatch } from './logic.js';
 import { escapeHtml as esc, formatPrice, formatVolume, pctText, tone, vsText } from './display.js';
+import { createDialogFocus } from './dialog.js';
 
 export function sparkMarkup(values, label, className = 'mini-spark') {
   const points = linePoints(values);
@@ -7,6 +8,7 @@ export function sparkMarkup(values, label, className = 'mini-spark') {
 }
 export function createPersonal({ getStocks, getHistory, openStock }) {
   const $ = id => document.getElementById(id);
+  const compareFocus = createDialogFocus($('compare-dialog'), { fallback: () => $('compare-submit') });
   const read = key => { try { return localStorage.getItem(key); } catch { return null; } };
   const write = (key, value) => { try { localStorage.setItem(key, value); return true; } catch { return false; } };
   let watch = loadWatch(read('cowPasture.watch.v1'));
@@ -32,12 +34,14 @@ export function createPersonal({ getStocks, getHistory, openStock }) {
     history.replaceState(null, '', url);
   }
   function compareMarkup() {
+    compareFocus.preserveFocus(() => {
     $('compare-content').innerHTML = `<div class="compare-grid">${compare.map(code => {
       const s = pickStock(getStocks(), code);
       if (!s) return `<article><h3>${esc(code)}</h3><p>目前快照沒有這檔股票。</p></article>`;
       const spark = sparkMarkup(historySeries(getHistory(), s.key), `${s.code} 今日盤中價格`, 'compare-spark');
       return `<article><h3>${esc(s.code)} ${esc(s.name)}</h3><dl class="compare-values"><dt>價格</dt><dd>${formatPrice(s.price)}</dd><dt>漲跌幅</dt><dd class="${tone(s.pct)}">${pctText(s.pct)}</dd><dt>對標所屬大盤</dt><dd class="${tone(s.vs)}">${vsText(s.vs)}</dd><dt>成交量（張）</dt><dd>${formatVolume(s.vol)}</dd></dl>${spark || '<p class="quiet">盤中歷史尚不足兩點。</p>'}<button type="button" data-compare-stock="${esc(s.key)}">查看個股明細</button></article>`;
     }).join('')}</div><p class="fine-print">兩圖各自縮放價格範圍。依快照累積，約每 1–2 分鐘一點，非逐筆分時；資料可能延遲，非投資建議。</p>`;
+    });
   }
   $('compare-form').addEventListener('submit', event => {
     event.preventDefault();
@@ -45,11 +49,14 @@ export function createPersonal({ getStocks, getHistory, openStock }) {
     const resolve = raw => pickStock(stocks, raw.trim()) ?? stocks.find(s => s.name === raw.trim());
     const a = resolve($('compare-a').value), b = resolve($('compare-b').value);
     if (!a || !b || a.code === b.code) { $('compare-status').textContent = '請選擇快照中的兩檔不同股票。'; return; }
-    compare = [a.code, b.code]; syncInputs(); syncCompareUrl(); compareMarkup(); $('compare-dialog').showModal();
+    compare = [a.code, b.code]; syncInputs(); syncCompareUrl(); compareMarkup(); compareFocus.show(event.submitter ?? $('compare-submit'));
   });
   $('compare-content').addEventListener('click', event => {
     const button = event.target.closest('[data-compare-stock]');
-    if (button) { $('compare-dialog').close(); openStock(button.dataset.compareStock, button); }
+    if (button) {
+      const trigger = compareFocus.returnTarget();
+      $('compare-dialog').close(); openStock(button.dataset.compareStock, trigger);
+    }
   });
   $('watch-list').addEventListener('click', event => {
     const button = event.target.closest('[data-watch-stock]');
@@ -79,7 +86,7 @@ export function createPersonal({ getStocks, getHistory, openStock }) {
     if (!compare.includes(code) && compare.length < 2) compare.push(code);
     syncInputs(); syncCompareUrl();
     $('compare-status').textContent = compare.length === 2 ? `已選 ${compare.join('、')}；可在比較欄調整。` : `已選 ${code}，請再選第二檔。`;
-    if (compare.length === 2) { compareMarkup(); if (!$('compare-dialog').open) $('compare-dialog').showModal(); }
+    if (compare.length === 2) { compareMarkup(); compareFocus.show(); }
   }
   function refresh() {
     renderWatch();
@@ -89,11 +96,11 @@ export function createPersonal({ getStocks, getHistory, openStock }) {
       $('stock-options').innerHTML = stocks.map(s => `<option value="${esc(s.code)}">${esc(s.name)}</option>`).join('');
     }
     if ($('compare-dialog').open) compareMarkup();
-    if (initialCompare && stocks.length) { initialCompare = false; compareMarkup(); $('compare-dialog').showModal(); }
+    if (initialCompare && stocks.length) { initialCompare = false; compareMarkup(); compareFocus.show(); }
   }
   function syncUrl() {
     compare = parseCompare(new URL(location.href).searchParams.get('cmp')); syncInputs();
-    if (compare.length === 2) { compareMarkup(); if (!$('compare-dialog').open) $('compare-dialog').showModal(); }
+    if (compare.length === 2) { compareMarkup(); compareFocus.show(); }
     else $('compare-dialog').close();
   }
   return { toggle, addCompare, refresh, syncUrl, isWatched: code => watch.includes(code) };

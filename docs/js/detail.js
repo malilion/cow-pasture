@@ -1,5 +1,6 @@
 import { historySeries, linePoints, pickStock, sparkPoints } from './logic.js';
 import { badges, escapeHtml as esc, formatPrice, formatVolume, pctText, tone, vsText } from './display.js';
+import { createDialogFocus } from './dialog.js';
 
 export function detailMarkup(stock, snapshot, history = null, watched = false) {
   const labels = { prev: '前收', open: '開盤', high: '最高', low: '最低', price: '現價' };
@@ -20,7 +21,8 @@ export function detailMarkup(stock, snapshot, history = null, watched = false) {
 
 export function createStockPanel({ dialog, getStocks, getSnapshot, getHistory = () => null, isWatched = () => false, onWatch = () => {}, onCompare = () => {} }) {
   const title = dialog.querySelector('#detail-title'), content = dialog.querySelector('#detail-content');
-  let selection = new URL(location.href).searchParams.get('q') ?? '', urlTimer, returnTarget, returnSelector;
+  const focus = createDialogFocus(dialog);
+  let selection = new URL(location.href).searchParams.get('q') ?? '', urlTimer;
   function updateUrl() {
     clearTimeout(urlTimer);
     urlTimer = setTimeout(() => {
@@ -34,14 +36,11 @@ export function createStockPanel({ dialog, getStocks, getSnapshot, getHistory = 
     if (!selection || !getSnapshot()) return;
     const stock = pickStock(getStocks(), selection);
     title.innerHTML = stock ? `${esc(stock.code)} ${esc(stock.name)}` : '找不到這檔股票';
-    content.innerHTML = stock ? detailMarkup(stock, getSnapshot(), getHistory(), isWatched(stock.code)) : `<p>目前快照沒有代碼「${esc(selection)}」的資料，請關閉明細後重新搜尋。</p>`;
+    focus.preserveFocus(() => {
+      content.innerHTML = stock ? detailMarkup(stock, getSnapshot(), getHistory(), isWatched(stock.code)) : `<p>目前快照沒有代碼「${esc(selection)}」的資料，請關閉明細後重新搜尋。</p>`;
+    });
     if (!dialog.open) {
-      returnTarget = trigger ?? document.activeElement;
-      const source = returnTarget?.closest('[data-stock-key], [data-key]');
-      const key = source?.dataset.stockKey ?? source?.dataset.key;
-      const region = source?.closest('[id]')?.id;
-      returnSelector = key ? `${region ? `#${CSS.escape(region)} ` : ''}${source.dataset.key ? '.heat-tile[data-key' : 'button[data-stock-key'}="${CSS.escape(key)}"]` : null;
-      dialog.showModal(); document.body.classList.add('detail-open');
+      focus.show(trigger); document.body.classList.add('detail-open');
     }
   }
   function open(key, trigger) { selection = key; refresh(trigger); updateUrl(); }
@@ -61,17 +60,7 @@ export function createStockPanel({ dialog, getStocks, getSnapshot, getHistory = 
     if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) close();
   });
   dialog.addEventListener('close', () => {
-    document.body.classList.remove('detail-open');
-    const target = returnTarget?.isConnected ? returnTarget : returnSelector ? document.querySelector(returnSelector) : null;
-    (target ?? document.getElementById('refresh')).focus({ preventScroll: true });
-  });
-  // Native modal dialogs make the background inert; keep Tab cycling inside too.
-  dialog.addEventListener('keydown', event => {
-    if (event.key !== 'Tab') return;
-    const buttons = [...dialog.querySelectorAll('button:not([disabled]), a[href], [tabindex="0"]')];
-    const first = buttons[0], last = buttons.at(-1);
-    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    if (!dialog.open) document.body.classList.remove('detail-open');
   });
   function syncUrl() {
     clearTimeout(urlTimer);

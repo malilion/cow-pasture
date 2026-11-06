@@ -1,5 +1,6 @@
 import { breadth } from './logic.js';
 import { escapeHtml as esc, format, formatPrice } from './display.js';
+import { createDialogFocus } from './dialog.js';
 
 export function marketCard(snapshot, stocks) {
   const b = breadth(stocks);
@@ -8,6 +9,7 @@ export function marketCard(snapshot, stocks) {
 }
 export function createShare({ getSnapshot, getStocks }) {
   const $ = id => document.getElementById(id);
+  const focus = createDialogFocus($('share-dialog'));
   let svg = '', snapshot;
   const status = message => { $('share-status').textContent = message; };
   function download(url, extension) {
@@ -15,7 +17,7 @@ export function createShare({ getSnapshot, getStocks }) {
   }
   $('share-market').addEventListener('click', () => {
     snapshot = getSnapshot(); if (!snapshot) return;
-    svg = marketCard(snapshot, getStocks()); $('share-preview').innerHTML = svg; status(''); $('share-dialog').showModal();
+    svg = marketCard(snapshot, getStocks()); $('share-preview').innerHTML = svg; status(''); focus.show($('share-market'));
   });
   $('download-svg').addEventListener('click', () => {
     // Data URL also respects the existing img-src policy when previewed elsewhere.
