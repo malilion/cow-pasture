@@ -8,11 +8,11 @@ async function sources(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const path = resolve(directory, entry.name);
     if (entry.isDirectory()) paths.push(...await sources(path));
-    else if (/\.m?js$/.test(entry.name)) paths.push(path);
+    else if (/\.[cm]?js$/.test(entry.name)) paths.push(path);
   }
   return paths;
 }
-const files = (await Promise.all(['docs/js', 'scripts'].map(dir => sources(resolve(root, dir))))).flat().sort();
+const files = (await Promise.all(['docs/js', 'scripts', '.github/actions'].map(dir => sources(resolve(root, dir))))).flat().sort();
 for (const file of files) {
   const result = spawnSync(process.execPath, ['--check', file], { cwd: root, stdio: 'inherit' });
   if (result.status !== 0) process.exit(result.status ?? 1);

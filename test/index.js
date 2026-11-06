@@ -4,3 +4,5 @@ import './logic.test.mjs';
 import './fetch.test.mjs';
 import './serve.test.mjs';
 import './pasture.test.mjs';
+import './loop.test.mjs';
+import './deploy.test.mjs';

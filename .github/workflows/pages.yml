@@ -5,13 +5,14 @@ on:
     paths:
       - 'docs/**'
       - 'scripts/**'
+      - 'test/**'
       - '.github/**'
   workflow_dispatch:
   schedule:
-    # 臺北週一至週五 09:00–13:50，每 10 分鐘。GitHub 排程可能延遲，例假日也會執行。
-    # 私有倉庫每交易日約 30 次 × 約 1 分鐘，約 650 分鐘/月；依實際執行時間計費。
-    - cron: '*/10 1-5 * * 1-5'
-    # 臺北 14:20，收盤後最後一次快照。
+    # 臺北週一至週五 09:00–13:55，每 5 分鐘；13:35 起改為單次。
+    # GitHub cron 可能延遲或漏跑；平日休市仍會執行。
+    - cron: '*/5 1-5 * * 1-5'
+    # 臺北週一至週五 14:20 收盤快照，僅執行一次，不循環。
     - cron: '20 6 * * 1-5'
 permissions:
   contents: read
@@ -23,7 +24,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 6
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -32,14 +33,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: 擷取市場快照
-        run: node scripts/fetch-snapshot.mjs --out docs/data
-      - name: 檢查模組與測試
-        run: node scripts/check.mjs
       - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs
-      - name: 部署 Pages
+      - name: 暫時安裝 runner 部署工具（不寫入套件清單與 lockfile）
+        run: npm install --no-save --no-package-lock @actions/artifact@2.3.2 @actions/core@1.11.1 @actions/github@6.0.0
+      # JavaScript action 繼承 runner 的 ACTIONS_RUNTIME_* / ACTIONS_RESULTS_URL、OIDC
+      # 與 GITHUB_REPOSITORY / GITHUB_RUN_ID / GITHUB_SHA 等環境，執行 node scripts/market-loop.mjs。
+      - name: 循環擷取、檢查與部署 Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: ./.github/actions/market-loop
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MARKET_LOOP_SECONDS: '270'
+          MARKET_CYCLE_TARGET_MS: '100000'
+          MARKET_CYCLE_MIN_MS: '90000'
+          MARKET_UNTIL_TAIPEI: '13:35'

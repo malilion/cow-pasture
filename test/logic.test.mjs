@@ -81,7 +81,7 @@ test('臺北市場刷新時間跨 UTC 日期、開盤收盤邊界與週末', () 
 });
 test('新鮮度區分擷取時間與行情日期、延遲、盤後模式', () => {
   const active = freshness(snapshot, new Date('2026-11-06T01:51:01Z'));
-  assert.equal(active.age, 10); assert.equal(active.modeLabel, '盤中・延遲約 10–20 分鐘'); assert.equal(active.stale, false);
+  assert.equal(active.age, 10); assert.equal(active.modeLabel, '盤中・約每 1–2 分鐘更新'); assert.equal(active.stale, false);
   assert.equal(freshness(snapshot, new Date('2026-11-06T06:20:00Z')).modeLabel, '收盤資料');
   assert.equal(freshness({ ...snapshot, mode: 'eod' }).modeLabel, '盤後資料（前一交易日收盤）');
   assert.equal(freshness(snapshot, new Date('2026-11-07T01:51:01Z')).stale, true);

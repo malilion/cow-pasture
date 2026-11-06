@@ -83,6 +83,31 @@ test('MIS 每批最多 120 代碼，循序處理、間隔 350ms 並容忍中段�
   assert.deepEqual(sizes, [120, 120, 120, 120, 11]);
   assert.deepEqual(delays, [350, 600, 1200, 350]);
 });
+for (const { label, quotesOnly = false, budgetMs, expected } of [
+  { label: '完整擷取預設預算', expected: 350 },
+  { label: '完整擷取 330 秒預算', budgetMs: 330_000, expected: 350 },
+  { label: '完整擷取 90 秒預算', budgetMs: 90_000, expected: 100 },
+  { label: '完整擷取 120 秒預算', budgetMs: 120_000, expected: 100 },
+  { label: '完整擷取超過 120 秒預算', budgetMs: 120_001, expected: 350 },
+  { label: 'quotes-only 預設預算', quotesOnly: true, expected: 100 },
+  { label: 'quotes-only 330 秒預算', quotesOnly: true, budgetMs: 330_000, expected: 100 },
+]) {
+  test(`${label}使用 ${expected}ms 批次間隔`, () => withOutput(async out => {
+    // Repeat real EOD fixture rows to exercise multiple batches without inventing quotes.
+    const fetcher = async url => String(url).startsWith(SOURCES.tse)
+      ? response(Array(240).fill(fixtures.tse[0])) : transport()(url);
+    if (quotesOnly) await fetchSnapshot({ out, fetcher, pause, log: () => {} });
+    const delays = [], calls = [];
+    await fetchSnapshot({ out, quotesOnly, budgetMs, fetcher: async url => {
+      calls.push(String(url));
+      return fetcher(url);
+    }, pause: async ms => delays.push(ms), log: () => {} });
+    const batches = calls.filter(url => url.startsWith(SOURCES.mis)).length;
+    assert.ok(batches > 1);
+    assert.deepEqual(delays, Array(batches - 1).fill(expected));
+    if (quotesOnly) assert.equal(calls.length, batches);
+  }));
+}
 test('端點連續三批失敗即停止 MIS，避免耗盡部署時間', async () => {
   let attempts = 0;
   const result = await fetchMisQuotes(Array(480).fill('tse_2330.tw'), { fetcher: async () => { attempts++; throw new Error('blocked'); }, pause, log: () => {} });
@@ -94,23 +119,75 @@ test('MIS 預算耗盡時跳過請求，讓部署能使用盤後回補', async (
   assert.equal(called, false); assert.equal(result.misOk, 0); assert.deepEqual(result.mis, []);
 });
 
-test('四個清單與產業來源同時啟動，不會循序等待', () => withOutput(async out => {
+test('四個清單與產業來源同時啟動，不會循序等待', { timeout: 2000 }, () => withOutput(async out => {
   const started = new Set();
-  let release;
+  let release, allStarted;
   const gate = new Promise(resolve => { release = resolve; });
+  const ready = new Promise(resolve => { allStarted = resolve; });
   const snapshotPromise = fetchSnapshot({ out, pause, log: () => {}, fetcher: async url => {
     const key = Object.keys(SOURCES).find(k => String(url).startsWith(SOURCES[k]));
     if (key !== 'mis') {
       started.add(key);
+      if (started.size === 4) allStarted();
       await gate;
     }
     return response(fixtures[key]);
   } });
   try {
-    await new Promise(resolve => setImmediate(resolve));
+    await ready;
     assert.deepEqual([...started].sort(), ['otc', 'otcIndustry', 'tse', 'tseIndustry']);
   } finally {
     release();
     await snapshotPromise;
   }
+}));
+
+test('quotes-only 沿用完整股票與產業清單，僅查 MIS（含指數），缺漏仍用原始 EOD', () => withOutput(async out => {
+  const first = await fetchSnapshot({ out, fetcher: transport(), pause, log: () => {} });
+  const calls = [];
+  const next = await fetchSnapshot({ out, quotesOnly: true, fetcher: transport({ calls,
+    onMis: () => ({ ...fixtures.mis, msgArray: fixtures.mis.msgArray.filter(row => row.c !== '2330') }),
+  }), pause, log: () => {} });
+  assert.equal(calls.length, 1);
+  assert.ok(calls.every(call => call.url.startsWith(SOURCES.mis)));
+  const channels = new URL(calls[0].url).searchParams.get('ex_ch').split('|');
+  assert.ok(channels.includes('tse_t00.tw') && channels.includes('otc_o00.tw'));
+  assert.equal(channels.length, first.rows.length + 2);
+  assert.deepEqual(next.industries, first.industries);
+  const eod = next.meta.eodRows.find(row => row.code === '2330');
+  const stock = decodeSnapshot(next).find(row => row.code === '2330');
+  assert.equal(stock.price, eod.price);
+  assert.equal(stock.date, eod.date);
+  assert.equal(stock.fallback, true);
+  assert.notEqual(stock.price, decodeSnapshot(first).find(row => row.code === '2330').price);
+  // A second quotes-only cycle must not turn the first MIS price into an EOD fallback.
+  const third = await fetchSnapshot({ out, quotesOnly: true, fetcher: transport({ calls, misFails: true }), pause, log: () => {} });
+  assert.equal(third.mode, 'eod');
+  assert.equal(decodeSnapshot(third).find(row => row.code === '2330').price, eod.price);
+  assert.equal(third.marketDate, eod.date);
+}));
+test('quotes-only 沒有前次快照時記錄並自動完整擷取', () => withOutput(async out => {
+  const calls = [], logs = [];
+  await fetchSnapshot({ out, quotesOnly: true, fetcher: transport({ calls }), pause, log: line => logs.push(line) });
+  assert.equal(calls.length, 5);
+  assert.ok(logs.some(line => line.includes('改為完整擷取')));
+}));
+test('quotes-only 支援舊版快照：只沿用真正 EOD，不將 MIS 價重標盤後', () => withOutput(async out => {
+  const snapshot = await fetchSnapshot({ out, fetcher: transport(), pause, log: () => {} });
+  delete snapshot.meta.eodRows;
+  snapshot.meta.fixture = true;
+  const { writeFile } = await import('node:fs/promises');
+  await writeFile(join(out, 'snapshot.json'), JSON.stringify(snapshot));
+  const calls = [];
+  const next = await fetchSnapshot({ out, quotesOnly: true, fetcher: transport({ calls, misFails: true }), pause, log: () => {} });
+  assert.ok(calls.every(call => call.url.startsWith(SOURCES.mis)));
+  const stock = decodeSnapshot(next).find(row => row.code === '2330');
+  assert.equal(stock.price, null); assert.equal(stock.date, null);
+  assert.equal(next.meta.fixture, true);
+}));
+test('迴圈可限制完整擷取預算，耗盡時使用真實盤後資料', () => withOutput(async out => {
+  const calls = [];
+  const next = await fetchSnapshot({ out, budgetMs: 0, fetcher: transport({ calls }), pause, log: () => {} }).catch(error => error);
+  assert.equal(calls.length, 0);
+  assert.ok(next instanceof Error);
 }));

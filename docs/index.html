@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#e8f1e7">
-  <meta name="description" content="全台股牧場概況：上市、上櫃與 ETF 漲跌、產業熱圖，以及會長草的 3D 牧場。紅漲綠跌，資料約每 10 分鐘抓取，非即時報價。">
+  <meta name="description" content="全台股牧場概況：上市、上櫃與 ETF 漲跌、產業熱圖，以及會長草的 3D 牧場。紅漲綠跌，盤中約每 1–2 分鐘更新，非即時報價。">
   <title>cow-pasture｜我的持股已經綠到上面有牛在吃草了</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
@@ -19,7 +19,7 @@
   <main id="main" class="wrap">
     <section class="intro" aria-labelledby="title">
       <div><p class="eyebrow">TAIWAN MARKET, A LITTLE WILDER.</p><h1 id="title">我的持股已經綠到<br>上面有牛在吃草了<span class="title-dot">。</span></h1><p class="intro-copy">全台股牧場概況。紅的是漲，綠的是草；<br class="mobile-break">今天的市場，養得起幾頭牛？</p></div>
-      <div class="freshness-card"><span class="eyebrow">牧場觀測站 · 臺北時間</span><div id="freshness" role="status" aria-live="polite" aria-atomic="true">正在取得市場快照…</div><p>每約 10 分鐘抓取一次，非即時逐筆報價</p><button id="refresh" class="text-button" type="button">↻ 更新資料</button></div>
+      <div class="freshness-card"><span class="eyebrow">牧場觀測站 · 臺北時間</span><div id="freshness" role="status" aria-live="polite" aria-atomic="true">正在取得市場快照…</div><p>盤中約每 1–2 分鐘更新；MIS 本身可能延遲，非即時逐筆報價</p><button id="refresh" class="text-button" type="button">↻ 更新資料</button></div>
     </section>
     <div id="error-banner" class="notice error" hidden><span id="error-message"></span><button id="retry" type="button">重試</button></div>
     <div id="data-notice" class="notice" hidden></div>
@@ -60,7 +60,7 @@
     <section class="card" aria-labelledby="industry-title"><div class="section-heading"><div><p class="eyebrow">DISTRICT NOTES</p><h2 id="industry-title">哪個產業草最長？</h2></div><span class="quiet">依平均漲跌幅排序</span></div><div class="table-scroll" tabindex="0" role="region" aria-label="可左右捲動的資料表"><table><caption class="sr-only">產業等權平均漲跌幅與加權指數差異</caption><thead><tr><th scope="col">產業</th><th scope="col">檔數</th><th scope="col">平均漲跌</th><th scope="col">上漲 / 下跌</th><th scope="col">對標加權指數</th></tr></thead><tbody id="industry-rows"></tbody></table></div><p class="fine-print">各產業採有比較基準股票的等權平均，包含 ETF 分區；非市值加權產業指數。個股以其所屬市場指數對標；混合日期的盤後回補不與當日大盤比較。</p></section>
     <section id="search" class="card" aria-labelledby="search-title"><div class="section-heading"><div><p class="eyebrow">FIND YOUR PATCH</p><h2 id="search-title">你的股票，長草了嗎？</h2></div><span id="search-count" class="quiet"></span></div><form id="search-form" class="search-form" role="search"><label class="search-input"><span class="sr-only">股票代碼或名稱</span><input id="query" type="search" placeholder="輸入代碼或名稱，找找你的那塊田…" autocomplete="off"></label><label><span class="sr-only">篩選市場</span><select id="search-market"><option value="all">所有市場</option><option value="tse">上市</option><option value="otc">上櫃</option><option value="etf">ETF</option></select></label><label><span class="sr-only">篩選漲跌</span><select id="search-direction"><option value="all">所有漲跌</option><option value="up">上漲</option><option value="down">下跌</option><option value="flat">平盤</option></select></label></form><div class="table-scroll" tabindex="0" role="region" aria-label="可左右捲動的資料表"><table><caption class="sr-only">股票搜尋結果，價格為新臺幣，成交量單位為張</caption><thead><tr><th scope="col">股票</th><th scope="col">市場 / 產業</th><th scope="col">價格</th><th scope="col">漲跌幅</th><th scope="col">成交量（張）</th><th scope="col">對標大盤</th></tr></thead><tbody id="search-rows"></tbody></table></div><button id="show-more" class="more-button" type="button" hidden>顯示更多（+50）</button></section>
   </main>
-  <footer class="wrap"><div class="footer-brand">🐄 cow-pasture <span>投資有風險，養牛要耐心。</span></div><p>本網站僅供娛樂與資訊參考，非投資建議。報價來源：臺灣證券交易所 MIS 基本市況報導、TWSE/TPEx OpenAPI，經 GitHub Actions 每約 10 分鐘抓取一次，資料可能延遲或有誤，請以券商/交易所為準。</p><p>© 2026 Malilion · <a href="credits.html">開源致謝 / three.js MIT</a> · 不使用追蹤工具</p></footer>
+  <footer class="wrap"><div class="footer-brand">🐄 cow-pasture <span>投資有風險，養牛要耐心。</span></div><p>本網站僅供娛樂與資訊參考，非投資建議。報價來源：臺灣證券交易所 MIS 基本市況報導、TWSE/TPEx OpenAPI，經 GitHub Actions 於盤中約每 1–2 分鐘更新，資料可能延遲或有誤，請以券商/交易所為準。</p><p>© 2026 Malilion · <a href="credits.html">開源致謝 / three.js MIT</a> · 不使用追蹤工具</p></footer>
   <noscript><p class="notice wrap">請啟用 JavaScript 以載入市場資料與牧場。</p></noscript>
 </body>
 </html>

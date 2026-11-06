@@ -1,0 +1,8 @@
+name: 市場快照循環
+description: 以 JavaScript action 繼承 artifact runtime 憑證，再啟動 Node 22 循環
+outputs:
+  page_url:
+    description: 最後成功部署的 Pages 網址
+runs:
+  using: node20
+  main: launch.cjs

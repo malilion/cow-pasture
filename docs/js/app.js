@@ -160,7 +160,7 @@ async function fetchData() {
   aborter = new AbortController();
   const timeout = setTimeout(() => aborter.abort(), 20_000);
   try {
-    const response = await fetch(`data/snapshot.json?t=${Math.floor(Date.now() / 60_000)}`, { signal: aborter.signal, cache: 'no-store' });
+    const response = await fetch(`data/snapshot.json?t=${Date.now()}`, { signal: aborter.signal, cache: 'no-store' });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const snapshot = await response.json(), stocks = decodeSnapshot(snapshot);
     if (!snapshot.indices || !snapshot.indices.taiex || !snapshot.indices.otc || !stocks.length) throw new Error('快照沒有可用資料');

@@ -30,12 +30,12 @@ export async function requestJson(url, { fetcher = fetch, pause = sleep, validat
   }
   throw lastError;
 }
-export async function fetchMisQuotes(symbols, { fetcher = fetch, pause = sleep, log = console.log, deadline = Date.now() + 330_000 } = {}) {
+export async function fetchMisQuotes(symbols, { fetcher = fetch, pause = sleep, log = console.log, deadline = Date.now() + 330_000, batchPauseMs = 350 } = {}) {
   const mis = [], batches = Math.ceil(symbols.length / 120);
   let misOk = 0, consecutiveFailures = 0;
   for (let offset = 0; offset < symbols.length; offset += 120) {
     if (Date.now() >= deadline) { log('MIS 已達擷取時間預算，剩餘股票採盤後回補。'); break; }
-    if (offset) await pause(350);
+    if (offset) await pause(batchPauseMs);
     const url = new URL(SOURCES.mis);
     url.search = new URLSearchParams({ json: '1', delay: '0', ex_ch: symbols.slice(offset, offset + 120).join('|') });
     try {
@@ -48,39 +48,62 @@ export async function fetchMisQuotes(symbols, { fetcher = fetch, pause = sleep, 
     } catch (error) {
       consecutiveFailures++;
       log(`MIS 批次 ${offset / 120 + 1}/${batches} 失敗：${error.message}`);
-      // Avoid exhausting the eight-minute deployment window when the entire endpoint is blocked.
+      // Leave time for deployment when the endpoint is blocked.
       if (consecutiveFailures >= 3) { log('MIS 連續三批失敗，剩餘股票採盤後回補。'); break; }
     }
   }
   return { mis, misOk };
 }
-export async function fetchSnapshot({ out = 'docs/data', fetcher = fetch, pause = sleep, log = console.log } = {}) {
-  const started = Date.now(), request = url => requestJson(url, { fetcher, pause });
-  const results = await Promise.allSettled(['tse', 'otc', 'tseIndustry', 'otcIndustry'].map(async key => {
+export async function fetchSnapshot({ out = 'docs/data', quotesOnly = false, budgetMs, fetcher = fetch, pause = sleep, log = console.log } = {}) {
+  const started = Date.now();
+  let previous;
+  try {
+    previous = JSON.parse(await readFile(resolve(out, 'snapshot.json'), 'utf8'));
+    if (previous.v !== 1 || !previous.rows?.length || !Array.isArray(previous.fields) || !Array.isArray(previous.industries)) throw new Error('無效快照');
+  } catch {
+    previous = null;
+    if (quotesOnly) { log('沒有可用的前次快照，改為完整擷取。'); quotesOnly = false; }
+  }
+  const deadline = started + (budgetMs ?? (quotesOnly ? 90_000 : 330_000));
+  const request = url => requestJson(url, { fetcher, pause, deadline });
+  const keys = ['tse', 'otc', 'tseIndustry', 'otcIndustry'];
+  const results = quotesOnly ? [] : await Promise.allSettled(keys.map(async key => {
     const rows = await request(SOURCES[key]);
     if (!Array.isArray(rows) || rows.length === 0) throw new Error(`${key}: 空白或無效資料`);
     return rows;
   }));
-  const value = i => results[i].status === 'fulfilled' ? results[i].value : [];
+  const value = i => results[i]?.status === 'fulfilled' ? results[i].value : [];
   const industries = industryMap(value(2), value(3));
   const eod = [...normalizeEod(value(0), 'tse', industries), ...normalizeEod(value(1), 'otc', industries)];
-  const missingMarkets = ['tse', 'otc'].filter(mkt => !eod.some(row => row.mkt === mkt));
-  const failedSources = results.flatMap((r, i) => r.status === 'rejected' ? [Object.keys(SOURCES)[i]] : []);
+  const missingMarkets = quotesOnly ? previous.meta?.incompleteUniverse ?? [] : ['tse', 'otc'].filter(mkt => !eod.some(row => row.mkt === mkt));
+  const failedSources = quotesOnly ? previous.meta?.failedSources ?? [] : results.flatMap((r, i) => r.status === 'rejected' ? [keys[i]] : []);
   // A previous local artifact can supply the universe if an OpenAPI endpoint is temporarily unavailable.
-  try {
-    const previous = JSON.parse(await readFile(resolve(out, 'snapshot.json'), 'utf8'));
+  if (previous) {
     const available = new Set(eod.map(row => row.mkt));
+    const saved = new Map((previous.meta?.eodRows ?? []).map(row => [`${row.mkt}:${row.code}`, row]));
+    const fallbacks = new Set(previous.meta?.fallbackSymbols ?? []);
     for (const row of previous.rows) {
       const q = Object.fromEntries(previous.fields.map((field, i) => [field, row[i]]));
-      if (!available.has(q.mkt)) eod.push({ ...q, ind: previous.industries[q.ind], price: null, prev: null,
-        open: null, high: null, low: null, vol: null, est: 0, lu: null, ld: null, date: null, time: null });
+      if (!validCode(q.code) || !['tse', 'otc'].includes(q.mkt)) continue;
+      if (!available.has(q.mkt)) {
+        const key = `${q.mkt}:${q.code}`;
+        const empty = { ...q, ind: previous.industries[q.ind] ?? '其他', price: null, prev: null,
+          open: null, high: null, low: null, vol: null, est: 0, lu: null, ld: null, date: null, time: null };
+        // Old snapshots only retained EOD values for fallback symbols. Never relabel an old MIS price as EOD.
+        const legacyEod = fallbacks.has(key) ? { ...q, ind: empty.ind,
+          date: previous.meta?.fallbackDates?.[key] ?? null, time: null } : empty;
+        eod.push(quotesOnly ? saved.get(key) ?? legacyEod : empty);
+      }
     }
-  } catch { /* First run has no local artifact. */ }
+  }
   const symbols = ['tse_t00.tw', 'otc_o00.tw', ...eod.map(row => `${row.mkt}_${row.code}.tw`)];
-  const { mis, misOk } = await fetchMisQuotes(symbols, { fetcher, pause, log });
+  const { mis, misOk } = await fetchMisQuotes(symbols, {
+    fetcher, pause, log, deadline, batchPauseMs: quotesOnly || budgetMs <= 120_000 ? 100 : 350,
+  });
   const batches = Math.ceil(symbols.length / 120);
   const snapshot = createSnapshot({ eod, mis, misOk, sources: Object.values(SOURCES), meta: {
-    failedSources, incompleteUniverse: missingMarkets,
+    ...(quotesOnly && previous.meta?.fixture ? { fixture: true } : {}),
+    failedSources, incompleteUniverse: missingMarkets, eodRows: eod,
   } });
   const usableEod = eod.some(row => row.date && (row.price !== null || row.vol === 0));
   const usableMis = mis.some(row => validCode(row.code) && row.date);
@@ -94,5 +117,5 @@ export async function fetchSnapshot({ out = 'docs/data', fetcher = fetch, pause 
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const args = process.argv.slice(2), index = args.indexOf('--out');
-  fetchSnapshot({ out: index >= 0 ? args[index + 1] : 'docs/data' }).catch(error => { console.error(error.message); process.exitCode = 1; });
+  fetchSnapshot({ out: index >= 0 ? args[index + 1] : 'docs/data', quotesOnly: args.includes('--quotes-only') }).catch(error => { console.error(error.message); process.exitCode = 1; });
 }

@@ -86,6 +86,6 @@ export function freshness(snapshot, now = new Date()) {
   const p = taipeiParts(now), today = `${p.year}-${p.month}-${p.day}`;
   const active = isMarketHours(now, 13 * 60 + 30) && snapshot.marketDate === today;
   return { age, ageLabel: age === null ? '更新時間不明' : age === 0 ? '剛剛更新' : `約 ${age.toLocaleString('zh-TW')} 分鐘前更新`,
-    modeLabel: snapshot.mode === 'eod' ? '盤後資料（前一交易日收盤）' : active ? '盤中・延遲約 10–20 分鐘' : '收盤資料',
+    modeLabel: snapshot.mode === 'eod' ? '盤後資料（前一交易日收盤）' : active ? '盤中・約每 1–2 分鐘更新' : '收盤資料',
     stale: age === null || age > 30, dateLabel: `${snapshot.marketDate ?? '日期未提供'}${snapshot.quoteTime ? ` ${snapshot.quoteTime}` : '（未提供時間）'}` };
 }
