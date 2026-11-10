@@ -58,3 +58,8 @@ npm start                   # http://localhost:5173
 ## 授權
 
 [MIT](LICENSE) © 2026 Malilion · [開源致謝](docs/credits.html) · [原始碼](https://github.com/malilion/cow-pasture)
+
+---
+
+<!-- malilion-ecosystem-footer -->
+<p align="center"><sub>🦁 碼力獅 <a href="https://github.com/malilion">MaliLion</a> 生態系的一員 · <a href="https://malilion.com">malilion.com</a> · <a href="https://github.com/malilion?tab=repositories">更多作品</a></sub></p>
